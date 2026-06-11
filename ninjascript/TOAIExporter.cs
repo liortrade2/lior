@@ -148,21 +148,32 @@ namespace NinjaTrader.NinjaScript.Indicators
             // Read back the score written by: python main.py -> option 4 (watch mode)
             MlFilterPassed = false;
             double probOfTrue = double.NaN;
+            string debugMsg = "";
             try
             {
                 if (System.IO.File.Exists(ScoreFile))
                 {
+                    string scoreContent = System.IO.File.ReadAllText(ScoreFile).Trim();
                     double parsed;
-                    if (double.TryParse(System.IO.File.ReadAllText(ScoreFile).Trim(),
+                    if (double.TryParse(scoreContent,
                             System.Globalization.NumberStyles.Float,
                             System.Globalization.CultureInfo.InvariantCulture, out parsed))
                     {
                         probOfTrue = parsed;
                         MlFilterPassed = probOfTrue >= MinProbabilityThreshold;
+                        debugMsg = "SCORE_OK";
+                    }
+                    else
+                    {
+                        debugMsg = "PARSE_FAIL:" + scoreContent;
                     }
                 }
+                else
+                {
+                    debugMsg = "NO_FILE";
+                }
             }
-            catch (Exception ex) { ioError = ex.Message; }
+            catch (Exception ex) { ioError = ex.Message; debugMsg = "EXCEPTION"; }
 
             if (ioError != null)
             {
@@ -202,8 +213,12 @@ namespace NinjaTrader.NinjaScript.Indicators
             }
             else
             {
+                // Debug: show why no score
+                string displayMsg = debugMsg == "NO_FILE" ? "no score.txt (Watch not running?)" :
+                                   debugMsg.StartsWith("PARSE_FAIL") ? "parse error: " + debugMsg.Substring(11) :
+                                   debugMsg == "EXCEPTION" ? "read exception" : "unknown";
                 Draw.TextFixed(this, "TOAIScore",
-                    "TOAI: no score.txt — run: python main.py -> option 4 (watch mode)",
+                    "TOAI: " + displayMsg + " — python main.py option 4",
                     TextPosition.TopLeft, Brushes.Gray, new SimpleFont("Arial", 12),
                     Brushes.Transparent, Brushes.Transparent, 0);
             }
