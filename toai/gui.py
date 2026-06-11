@@ -194,10 +194,17 @@ class ToaiPanel(tk.Tk):
             if wf:
                 self._log(f"Walk-forward PMV = {sum(wf) / len(wf):.4f} "
                           f"(folds: {'  '.join(f'{a:.3f}' for a in wf)})")
-            if bundle.get("threshold_report"):
+            if bundle.get("wf_threshold_report"):
+                self._log("")
+                self._log(format_threshold_report(
+                    bundle["wf_threshold_report"],
+                    title="Threshold analysis (walk-forward — USE THIS to pick threshold):"))
+            elif bundle.get("threshold_report"):
+                self._log("")
                 self._log(format_threshold_report(bundle["threshold_report"]))
         except Exception:
             pass
+        self._log("")
         self._log("Done. Restart TOAI_Watch.bat to load the new model.")
         messagebox.showinfo("TOAI", "Model trained successfully.\n\n"
                            "Restart TOAI_Watch.bat so it loads the new model,\n"

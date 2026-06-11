@@ -64,12 +64,17 @@ def train(df: pd.DataFrame | None = None, features=None, verbose: bool = True):
     y_prob = model.predict_proba(X_test)[:, 1]
     pmv = roc_auc_score(y_test, y_prob)
     report = threshold_report(y_test.to_numpy(), y_prob)
-    wf_aucs = walk_forward(df, features=features)
+    wf_aucs, wf_y, wf_prob = walk_forward(df, features=features)
+    # The honest threshold table: built from walk-forward predictions only,
+    # where every score was produced by a model that never saw that trade's
+    # time period. The random-split table is optimistic (time leakage).
+    wf_report = threshold_report(wf_y, wf_prob) if len(wf_y) else None
 
     config.MODEL_FILE.parent.mkdir(parents=True, exist_ok=True)
     joblib.dump({"model": model, "scaler": scaler, "features": features, "pmv": pmv,
                  "walk_forward": wf_aucs,
-                 "threshold_report": report},
+                 "threshold_report": report,
+                 "wf_threshold_report": wf_report},
                 config.MODEL_FILE)
 
     if verbose:
@@ -90,7 +95,14 @@ def train(df: pd.DataFrame | None = None, features=None, verbose: bool = True):
             else:
                 print("Walk-forward <= 0.5 — the edge does NOT hold forward in time.")
         print()
-        print(format_threshold_report(report, baseline=y.mean() * 100))
+        if wf_report:
+            print(format_threshold_report(
+                wf_report, baseline=float(wf_y.mean()) * 100,
+                title="Threshold analysis (walk-forward — use THIS to pick the threshold):"))
+            print()
+        print(format_threshold_report(
+            report, baseline=y.mean() * 100,
+            title="Threshold analysis (random test set — optimistic, for reference only):"))
         print(f"Model saved to:         {config.MODEL_FILE}")
 
     return model, scaler, pmv
@@ -100,18 +112,21 @@ def walk_forward(df, features=None, n_folds=4):
     """Chronological walk-forward validation: train only on the past,
     test on the next unseen window — the honest version of PMV.
 
-    Returns one AUC per fold (empty list when there is too little data).
+    Returns (aucs, y_true, y_prob): one AUC per fold plus the pooled
+    out-of-fold predictions (empty when there is too little data).
     """
+    import numpy as np
     features = features or config.FEATURES
+    empty = ([], np.array([]), np.array([]))
     if len(df) < 150:
-        return []
+        return empty
     if "DateTime" in df.columns:
         df = df.sort_values("DateTime")
     X = df[features].to_numpy()
     y = (df[config.TARGET_COLUMN] > 0).astype(int).to_numpy()
     n = len(df)
     fold = n // (n_folds + 1)
-    aucs = []
+    aucs, all_y, all_prob = [], [], []
     for i in range(1, n_folds + 1):
         end = fold * (i + 1) if i < n_folds else n
         X_tr, y_tr = X[:fold * i], y[:fold * i]
@@ -125,7 +140,11 @@ def walk_forward(df, features=None, n_folds=4):
         model.fit(scaler.transform(X_tr), y_tr)
         prob = model.predict_proba(scaler.transform(X_te))[:, 1]
         aucs.append(float(roc_auc_score(y_te, prob)))
-    return aucs
+        all_y.append(y_te)
+        all_prob.append(prob)
+    if not aucs:
+        return empty
+    return aucs, np.concatenate(all_y), np.concatenate(all_prob)
 
 
 def threshold_report(y_true, y_prob, thresholds=(50, 55, 60, 65, 70)):
@@ -146,9 +165,10 @@ def threshold_report(y_true, y_prob, thresholds=(50, 55, 60, 65, 70)):
     return rows
 
 
-def format_threshold_report(report, baseline=None):
-    lines = ["Threshold analysis (on the held-out test set):",
-             "  Thresh | Trades kept | Win rate"]
+def format_threshold_report(report, baseline=None, title=None):
+    if title is None:
+        title = "Threshold analysis (on the held-out test set):"
+    lines = [title, "  Thresh | Trades kept | Win rate"]
     for r in report:
         lines.append(f"    {r['threshold']:>3}  |  {r['trades_kept']:>4} / {r['total']:<4} |  {r['win_rate']:5.1f}%")
     if baseline is not None:
