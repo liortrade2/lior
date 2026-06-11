@@ -71,7 +71,7 @@ namespace NinjaTrader.NinjaScript.Indicators
 
         protected override void OnBarUpdate()
         {
-            if (CurrentBar < 50) return;
+            if (CurrentBar < 20) return;
 
             double swingHigh = Swing(5).SwingHigh[0];
             double swingLow = Swing(5).SwingLow[0];
