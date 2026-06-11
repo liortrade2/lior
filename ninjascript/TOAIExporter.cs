@@ -99,6 +99,17 @@ namespace NinjaTrader.NinjaScript.Indicators
                 System.IO.File.AppendAllText(BarDataFile,
                     Time[0].ToString("yyyy-MM-dd HH:mm:ss") + "," + line + Environment.NewLine);
 
+            // Historical bars have no live score — the Python watch loop only
+            // runs in real time, so score.txt holds a single stale value that
+            // would otherwise be applied to the whole history and erase every
+            // past BloodHound signal. Pass-through (MLPass = 1) keeps the
+            // historical signals intact; the ML gate only acts on live bars.
+            if (State == State.Historical)
+            {
+                Values[1][0] = 1;
+                return;
+            }
+
             // Real-time bridge: only meaningful when Python watch mode is running.
             System.IO.File.WriteAllText(FeaturesFile, Header + Environment.NewLine + line + Environment.NewLine);
 
@@ -134,6 +145,16 @@ namespace NinjaTrader.NinjaScript.Indicators
                         probOfTrue, verdict, MinProbabilityThreshold),
                     TextPosition.TopLeft, color, new SimpleFont("Arial", 16) { Bold = true },
                     Brushes.Transparent, Brushes.Transparent, 0);
+
+                // Per-bar marker on the price chart, like TradeOptima's
+                // "LONG SKIPPED" tags: green score above the bar when the
+                // gate is open, red "SKIP" when blocked. One tag per bar so
+                // the history of decisions stays visible.
+                string barText = MlFilterPassed
+                    ? string.Format("{0:F0}%", probOfTrue)
+                    : string.Format("SKIP {0:F0}%", probOfTrue);
+                Draw.Text(this, "TOAIBar" + CurrentBar, barText,
+                    0, High[0] + 4 * TickSize, color);
             }
             else
             {

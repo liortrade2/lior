@@ -54,16 +54,30 @@ Baseline (no filter): 53.8%
 **כלל הבחירה:** הסף שבו ה-win rate המסונן גבוה משמעותית מה-baseline,
 אבל עדיין נשארות מספיק עסקאות (2-5 ביום). מתחילים ב-55 ומכווננים.
 
-## איפה מגדירים את הסף?
+## איפה מגדירים את הסף? (יש 3 מקומות!)
 
 | מקום | מה הוא שולט | איך משנים |
 |---|---|---|
-| **NinjaTrader** — TOAIExporter properties → `MinProbabilityThreshold` | ה-gate האמיתי (MLPass + התווית) | בחלון ה-Indicators על הצ'ארט |
+| **BloodHound** — Select Indicator → `TOAIExporter(true,55)` → `MinProbabilityThreshold` | **ה-gate האמיתי!** BloodHound מריץ עותק נפרד של האינדיקטור עם הפרמטרים האלה | בתוך ה-Logic Editor, לחיצה על שורת האינדיקטור |
+| **NinjaTrader** — TOAIExporter על הצ'ארט → `MinProbabilityThreshold` | רק התצוגה (באנר + תוויות + פאנל) | בחלון ה-Indicators על הצ'ארט |
 | **Python** — `toai/config.py` → `MIN_PROBABILITY_THRESHOLD` | התצוגה בחלון ה-Watch | עריכת הקובץ |
 
-**חשוב:** לשמור על שני הערכים זהים.
+**מלכודת נפוצה:** שינוי הסף על הצ'ארט **לא** משפיע על BloodHound — לו יש
+עותק נפרד עם הפרמטרים שמוגדרים ב-Select Indicator. תמיד לעדכן את שלושתם יחד.
+
+## התנהגות על היסטוריה (חשוב להבין)
+
+הציון של Python קיים **רק בזמן אמת**. לכן על ברים היסטוריים:
+
+- `MLPass = 1` תמיד (pass-through) — הסיגנלים ההיסטוריים של BloodHound
+  נשארים על הצ'ארט ולא נמחקים
+- אין באנר ואין תוויות על ברים היסטוריים
+- ה-gate של ה-ML פועל **רק על ברים חיים**
+
+המשמעות: בדיקת הפילטר נעשית ב-Replay / שוק חי, כשה-Watch של Python רץ.
 
 ## חיווי על הגרף
 
-- **באנר למעלה:** `Probability of Win: 62% | TRADE ALLOWED (min 55)` — ירוק כשעובר, אדום כשנחסם (כמו "LONG SKIPPED" של TradeOptima)
+- **באנר למעלה:** `Probability of Win: 62% | TRADE ALLOWED (min 55)` — ירוק כשעובר, אדום כשנחסם
+- **תווית מעל כל בר חי (כמו TradeOptima):** ירוק `62%` = ה-gate פתוח, אדום `SKIP 29%` = חסום
 - **פאנל תחתון:** קו כחול = ProbOfTrue, ריבועים ירוקים = MLPass (0/1), קו כתום = threshold
