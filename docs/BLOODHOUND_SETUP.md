@@ -78,6 +78,24 @@ Baseline (no filter): 53.8%
 
 ## חיווי על הגרף
 
-- **באנר למעלה:** `Probability of Win: 62% | TRADE ALLOWED (min 55)` — ירוק כשעובר, אדום כשנחסם
-- **תווית מעל כל בר חי (כמו TradeOptima):** ירוק `62%` = ה-gate פתוח, אדום `SKIP 29%` = חסום
-- **פאנל תחתון:** קו כחול = ProbOfTrue, ריבועים ירוקים = MLPass (0/1), קו כתום = threshold
+- **באנר למעלה (TOAIExporter):** `Probability of Win: 62% | TRADE ALLOWED (min 55)` — ירוק כשעובר, אדום כשנחסם
+- **תווית מעל בר עם סיגנל בלבד (TOAISignalLabel):** ירוק `62%` = ה-gate פתוח, אדום `SKIP 29%` = חסום
+- **פאנל תחתון (TOAIExporter):** קו כחול = ProbOfTrue, ריבועים ירוקים = MLPass (0/1), קו כתום = threshold
+
+## TOAISignalLabel — תווית רק על בר עם סיגנל
+
+התווית `62%` / `SKIP 29%` מופיעה **רק** על ברים שבהם BloodHound ירה סיגנל
+(הפס הירוק), לא על כל בר. זה אינדיקטור נפרד כי TOAIExporter חייב לרוץ על
+מחיר (בשביל ה-features), ואילו התווית צריכה לקרוא את ה-plot של BloodHound.
+
+**התקנה (פעם אחת):**
+
+1. NinjaScript Editor → Indicators → New → הדבק את `TOAISignalLabel.cs` → Compile
+2. על הצ'ארט: הוסף את האינדיקטור **TOAISignalLabel**
+3. בחלון ההגדרות שלו → **Input series** → בחר את ה-plot של BloodHound:
+   `BloodHound Ultimate → Entry Signal US` (ה-plot שמצייר את הפס הירוק)
+4. ודא ש-`MinProbabilityThreshold` זהה לזה של TOAIExporter (ברירת מחדל 55)
+
+**איך זה עובד:** כשה-plot של BloodHound שונה מ-0 (יש סיגנל) — האינדיקטור
+קורא את `score.txt` ומצייר את הציון מעל הבר. כשאין סיגנל — שום דבר לא מצויר.
+כמו ה-gate, התווית פועלת רק על ברים חיים (אין ציון אמיתי להיסטוריה).

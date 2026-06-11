@@ -201,15 +201,9 @@ namespace NinjaTrader.NinjaScript.Indicators
                     TextPosition.TopLeft, color, new SimpleFont("Arial", 16) { Bold = true },
                     Brushes.Transparent, Brushes.Transparent, 0);
 
-                // Per-bar marker on the price chart, like TradeOptima's
-                // "LONG SKIPPED" tags: green score above the bar when the
-                // gate is open, red "SKIP" when blocked. One tag per bar so
-                // the history of decisions stays visible.
-                string barText = MlFilterPassed
-                    ? string.Format("{0:F0}%", probOfTrue)
-                    : string.Format("SKIP {0:F0}%", probOfTrue);
-                Draw.Text(this, "TOAIBar" + CurrentBar, barText,
-                    0, High[0] + 4 * TickSize, color);
+                // Per-bar score tags are handled by TOAISignalLabel, which is
+                // fed the BloodHound signal plot as its input — so the tag
+                // appears only on bars where a signal actually fired.
             }
             else
             {
