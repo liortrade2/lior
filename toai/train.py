@@ -64,9 +64,11 @@ def train(df: pd.DataFrame | None = None, features=None, verbose: bool = True):
     y_prob = model.predict_proba(X_test)[:, 1]
     pmv = roc_auc_score(y_test, y_prob)
     report = threshold_report(y_test.to_numpy(), y_prob)
+    wf_aucs = walk_forward(df, features=features)
 
     config.MODEL_FILE.parent.mkdir(parents=True, exist_ok=True)
     joblib.dump({"model": model, "scaler": scaler, "features": features, "pmv": pmv,
+                 "walk_forward": wf_aucs,
                  "threshold_report": report},
                 config.MODEL_FILE)
 
@@ -79,11 +81,51 @@ def train(df: pd.DataFrame | None = None, features=None, verbose: bool = True):
             print("PMV > 0.5 — the model adds value over random. ✔")
         else:
             print("PMV <= 0.5 — the model does NOT add value yet. Collect more trades.")
+        if wf_aucs:
+            wf_mean = sum(wf_aucs) / len(wf_aucs)
+            folds = "  ".join(f"{a:.3f}" for a in wf_aucs)
+            print(f"Walk-forward PMV:       {wf_mean:.4f}  (folds: {folds})")
+            if wf_mean > 0.5:
+                print("Walk-forward > 0.5 — the edge holds on unseen future data. ✔")
+            else:
+                print("Walk-forward <= 0.5 — the edge does NOT hold forward in time.")
         print()
         print(format_threshold_report(report, baseline=y.mean() * 100))
         print(f"Model saved to:         {config.MODEL_FILE}")
 
     return model, scaler, pmv
+
+
+def walk_forward(df, features=None, n_folds=4):
+    """Chronological walk-forward validation: train only on the past,
+    test on the next unseen window — the honest version of PMV.
+
+    Returns one AUC per fold (empty list when there is too little data).
+    """
+    features = features or config.FEATURES
+    if len(df) < 150:
+        return []
+    if "DateTime" in df.columns:
+        df = df.sort_values("DateTime")
+    X = df[features].to_numpy()
+    y = (df[config.TARGET_COLUMN] > 0).astype(int).to_numpy()
+    n = len(df)
+    fold = n // (n_folds + 1)
+    aucs = []
+    for i in range(1, n_folds + 1):
+        end = fold * (i + 1) if i < n_folds else n
+        X_tr, y_tr = X[:fold * i], y[:fold * i]
+        X_te, y_te = X[fold * i:end], y[fold * i:end]
+        if len(set(y_tr)) < 2 or len(set(y_te)) < 2:
+            continue
+        scaler = StandardScaler().fit(X_tr)
+        model = GradientBoostingClassifier(
+            random_state=config.RANDOM_STATE,
+            n_estimators=200, max_depth=3, learning_rate=0.05)
+        model.fit(scaler.transform(X_tr), y_tr)
+        prob = model.predict_proba(scaler.transform(X_te))[:, 1]
+        aucs.append(float(roc_auc_score(y_te, prob)))
+    return aucs
 
 
 def threshold_report(y_true, y_prob, thresholds=(50, 55, 60, 65, 70)):

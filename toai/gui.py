@@ -52,9 +52,8 @@ class ToaiPanel(tk.Tk):
         bktest = ttk.LabelFrame(root, text="Backtest data (from Strategy Analyzer)", padding=8)
         bktest.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(0, 8))
         bktest.columnconfigure(0, weight=1)
-        info = ttk.Label(bktest, text="1. Export trades from Strategy Analyzer Trades tab (right-click)  →  save as:\n   " +
-                         str(config.DATA_DIR / "trades_export.csv") +
-                         "\n2. Load chart with TOAIExporter (ExportBarData=true) to build bar_data.csv\n3. Click below to merge & train",
+        info = ttk.Label(bktest, text="1. Strategy Analyzer → Trades tab → right-click → Export → save with ANY name\n   (the strategy's name is best) into:  " + str(config.DATA_DIR) +
+                         "\n2. Load chart with TOAIExporter (ExportBarData=true) to build bar_data.csv\n3. Click below — the newest export is found automatically, merged & trained",
                          wraplength=600, justify=tk.LEFT)
         info.grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 6))
         self.refresh_btn = ttk.Button(bktest, text="Refresh from Strategy Analyzer", command=self._refresh_from_backtest)
@@ -144,34 +143,37 @@ class ToaiPanel(tk.Tk):
             subprocess.Popen(["xdg-open", str(config.DATA_DIR)])
 
     def _refresh_from_backtest(self):
-        trades_file = config.DATA_DIR / "trades_export.csv"
-        bar_file = config.BAR_DATA_FILE
-        if not trades_file.exists():
+        from .build_and_train import find_trades_export
+        strategy = self.strategy.get() or None
+        trades_file = find_trades_export(strategy)
+        if trades_file is None:
             messagebox.showwarning(
                 "TOAI",
-                f"trades_export.csv not found at:\n\n{trades_file}\n\n"
+                f"No trades export found in:\n\n{config.DATA_DIR}\n\n"
                 f"Steps:\n"
                 f"1. In NinjaTrader: Strategy Analyzer → run backtest\n"
                 f"2. Trades tab → right-click → Export\n"
-                f"3. Save as the file above\n\n"
+                f"3. Save with any name (the strategy's name is best)\n"
+                f"   into the folder above\n\n"
                 f"Then click Refresh again.")
             self._open_data_dir()
             return
-        if not bar_file.exists():
+        if not config.BAR_DATA_FILE.exists():
             messagebox.showwarning(
                 "TOAI",
-                f"bar_data.csv not found at:\n\n{bar_file}\n\n"
+                f"bar_data.csv not found at:\n\n{config.BAR_DATA_FILE}\n\n"
                 f"Load a chart with TOAIExporter indicator (ExportBarData=true)\n"
                 f"covering the same period as your backtest, then click Refresh.")
             return
         self.refresh_btn.configure(state=tk.DISABLED)
+        self._log(f"Using trades export: {trades_file.name}")
         self._log("Merging backtest with bar data and training…")
-        threading.Thread(target=self._refresh_worker, daemon=True).start()
+        threading.Thread(target=self._refresh_worker, args=(strategy,), daemon=True).start()
 
-    def _refresh_worker(self):
+    def _refresh_worker(self, strategy):
         from .build_and_train import build_and_train
         try:
-            ok = build_and_train()
+            ok = build_and_train(strategy)
             if ok:
                 self.after(0, self._refresh_done)
             else:
@@ -181,6 +183,21 @@ class ToaiPanel(tk.Tk):
 
     def _refresh_done(self):
         self.refresh_btn.configure(state=tk.NORMAL)
+        try:
+            import joblib
+            from .train import format_threshold_report
+            bundle = joblib.load(config.MODEL_FILE)
+            pmv = bundle.get("pmv", float("nan"))
+            self.pmv_text.set(f"PMV:  {pmv:.4f}")
+            self._log(f"PMV (AUC-ROC) = {pmv:.4f}")
+            wf = bundle.get("walk_forward") or []
+            if wf:
+                self._log(f"Walk-forward PMV = {sum(wf) / len(wf):.4f} "
+                          f"(folds: {'  '.join(f'{a:.3f}' for a in wf)})")
+            if bundle.get("threshold_report"):
+                self._log(format_threshold_report(bundle["threshold_report"]))
+        except Exception:
+            pass
         self._log("Done. Restart TOAI_Watch.bat to load the new model.")
         messagebox.showinfo("TOAI", "Model trained successfully.\n\n"
                            "Restart TOAI_Watch.bat so it loads the new model,\n"
