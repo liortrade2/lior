@@ -132,14 +132,14 @@ namespace NinjaTrader.NinjaScript.Indicators
                 Draw.TextFixed(this, "TOAIScore",
                     string.Format("Probability of Win: {0:F0}%  |  {1}  (min {2})",
                         probOfTrue, verdict, MinProbabilityThreshold),
-                    TextPosition.TopRight, color, new SimpleFont("Arial", 16) { Bold = true },
+                    TextPosition.TopLeft, color, new SimpleFont("Arial", 16) { Bold = true },
                     Brushes.Transparent, Brushes.Transparent, 0);
             }
             else
             {
                 Draw.TextFixed(this, "TOAIScore",
                     "TOAI: no score.txt — run: python main.py -> option 4 (watch mode)",
-                    TextPosition.TopRight, Brushes.Gray, new SimpleFont("Arial", 12),
+                    TextPosition.TopLeft, Brushes.Gray, new SimpleFont("Arial", 12),
                     Brushes.Transparent, Brushes.Transparent, 0);
             }
         }
