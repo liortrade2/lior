@@ -45,6 +45,12 @@ namespace NinjaTrader.NinjaScript.Indicators
 
         public bool MlFilterPassed { get; private set; }
 
+        // Historical rows are buffered and written once when the chart goes
+        // realtime — one big write instead of thousands of appends, and no
+        // file-lock collisions with Python reading bar_data.csv.
+        private System.Text.StringBuilder histBuffer;
+        private string ioError;
+
         protected override void OnStateChange()
         {
             if (State == State.SetDefaults)
@@ -60,13 +66,33 @@ namespace NinjaTrader.NinjaScript.Indicators
             else if (State == State.Configure)
             {
                 Lines[0].Value = MinProbabilityThreshold;
+                histBuffer = new System.Text.StringBuilder();
             }
             else if (State == State.DataLoaded)
             {
-                System.IO.Directory.CreateDirectory(DataDir);
-                if (ExportBarData && !System.IO.File.Exists(BarDataFile))
-                    System.IO.File.WriteAllText(BarDataFile, "DateTime," + Header + Environment.NewLine);
+                try
+                {
+                    System.IO.Directory.CreateDirectory(DataDir);
+                    if (ExportBarData && !System.IO.File.Exists(BarDataFile))
+                        System.IO.File.WriteAllText(BarDataFile, "DateTime," + Header + Environment.NewLine);
+                }
+                catch (Exception ex) { ioError = ex.Message; }
             }
+            else if (State == State.Realtime || State == State.Terminated)
+            {
+                FlushHistoryBuffer();
+            }
+        }
+
+        private void FlushHistoryBuffer()
+        {
+            if (histBuffer == null || histBuffer.Length == 0) return;
+            try
+            {
+                System.IO.File.AppendAllText(BarDataFile, histBuffer.ToString());
+                histBuffer.Clear();
+            }
+            catch (Exception ex) { ioError = ex.Message; }
         }
 
         protected override void OnBarUpdate()
@@ -93,11 +119,7 @@ namespace NinjaTrader.NinjaScript.Indicators
                 bbWidth,
                 zScore);
 
-            // Historical export: one row per bar, used to build the real
-            // training file from a Strategy Analyzer backtest.
-            if (ExportBarData)
-                System.IO.File.AppendAllText(BarDataFile,
-                    Time[0].ToString("yyyy-MM-dd HH:mm:ss") + "," + line + Environment.NewLine);
+            string stamped = Time[0].ToString("yyyy-MM-dd HH:mm:ss") + "," + line + Environment.NewLine;
 
             // Historical bars have no live score — the Python watch loop only
             // runs in real time, so score.txt holds a single stale value that
@@ -106,26 +128,48 @@ namespace NinjaTrader.NinjaScript.Indicators
             // historical signals intact; the ML gate only acts on live bars.
             if (State == State.Historical)
             {
+                if (ExportBarData)
+                    histBuffer.Append(stamped);
                 Values[1][0] = 1;
                 return;
             }
 
-            // Real-time bridge: only meaningful when Python watch mode is running.
-            System.IO.File.WriteAllText(FeaturesFile, Header + Environment.NewLine + line + Environment.NewLine);
+            // Live bars are appended one by one (the buffer was already flushed).
+            try
+            {
+                if (ExportBarData)
+                    System.IO.File.AppendAllText(BarDataFile, stamped);
+
+                // Real-time bridge: only meaningful when Python watch mode is running.
+                System.IO.File.WriteAllText(FeaturesFile, Header + Environment.NewLine + line + Environment.NewLine);
+            }
+            catch (Exception ex) { ioError = ex.Message; }
 
             // Read back the score written by: python main.py -> option 4 (watch mode)
             MlFilterPassed = false;
             double probOfTrue = double.NaN;
-            if (System.IO.File.Exists(ScoreFile))
+            try
             {
-                double parsed;
-                if (double.TryParse(ScoreFile.Length > 0 ? System.IO.File.ReadAllText(ScoreFile).Trim() : "",
-                        System.Globalization.NumberStyles.Float,
-                        System.Globalization.CultureInfo.InvariantCulture, out parsed))
+                if (System.IO.File.Exists(ScoreFile))
                 {
-                    probOfTrue = parsed;
-                    MlFilterPassed = probOfTrue >= MinProbabilityThreshold;
+                    double parsed;
+                    if (double.TryParse(System.IO.File.ReadAllText(ScoreFile).Trim(),
+                            System.Globalization.NumberStyles.Float,
+                            System.Globalization.CultureInfo.InvariantCulture, out parsed))
+                    {
+                        probOfTrue = parsed;
+                        MlFilterPassed = probOfTrue >= MinProbabilityThreshold;
+                    }
                 }
+            }
+            catch (Exception ex) { ioError = ex.Message; }
+
+            if (ioError != null)
+            {
+                Draw.TextFixed(this, "TOAIError", "TOAI file error: " + ioError,
+                    TextPosition.BottomLeft, Brushes.Yellow, new SimpleFont("Arial", 12),
+                    Brushes.Transparent, Brushes.Transparent, 0);
+                ioError = null;
             }
 
             // MLPass plot: 1 = score passed the threshold, 0 = blocked.
