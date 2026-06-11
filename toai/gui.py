@@ -154,6 +154,14 @@ class ToaiPanel(tk.Tk):
         verdict = ("model adds value ✔" if pmv > 0.5
                    else "model does NOT add value — collect more trades")
         self._log(f"Done. {n_trades} trades | PMV (AUC-ROC) = {pmv:.4f} — {verdict}")
+        try:
+            import joblib
+            from .train import format_threshold_report
+            bundle = joblib.load(config.MODEL_FILE)
+            if bundle.get("threshold_report"):
+                self._log(format_threshold_report(bundle["threshold_report"]))
+        except Exception:
+            pass
         self._log(f"Model saved to {config.MODEL_FILE}")
 
     def _train_failed(self, err):

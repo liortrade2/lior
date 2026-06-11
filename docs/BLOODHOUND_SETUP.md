@@ -1,57 +1,69 @@
-# מדריך: בניית LIOR_MES_Entry ב-BloodHound
+# חיבור TOAIExporter לאסטרטגיות הקיימות
 
-לפי ה-build map — שלב 1: Signal generation בלבד. בלי BlackBird, בלי ML עדיין.
+## הארכיטקטורה (לפי המערכת של ליאור)
 
-## מה בונים
-קובץ BloodHound אחד בשם **LIOR_MES_Entry** עם שני outputs:
-- **Long** = Trend ∧ Regime ∧ Location
-- **Short** = ההפך המדויק
+```
+BloodHound template (קיים)          TOAIExporter (שלנו)
+templates\BloodHound                 plot: MLPass = 0/1
+   │  סיגנל כניסה                        │
+   └──────────────┬─────────────────────┘
+                  ▼
+            AND Solver ב-BloodHound
+                  │  סיגנל מסונן
+                  ▼
+        BlackBird template (קיים)
+        templates\BlackBird — ניהול עסקה
+```
 
-## תנאי הסיגנל (מה-build map)
+**אין צורך לבנות אסטרטגיות חדשות** — מחברים את שכבת ה-ML לקיימות.
 
-| תנאי | Long | Short |
+## ה-Plots של TOAIExporter
+
+| Plot | ערכים | תפקיד |
 |---|---|---|
-| A — Trend 1 | EMA(9) > EMA(20) | EMA(9) < EMA(20) |
-| A — Trend 2 | EMA(20) > EMA(50) | EMA(20) < EMA(50) |
-| B — Regime | TTM Squeeze Histogram > 0 בבר הנוכחי **וגם** בבר הקודם | Histogram < 0 בשני הברים |
-| C — Location | Close > Current Day VWAP | Close < Current Day VWAP |
+| `ProbOfTrue` | 0-100 | הציון הגולמי מהמודל |
+| `MLPass` | 0 או 1 | 1 = הציון ≥ threshold → מותר לסחור |
 
-העדפה: Lizard Gapless EMA ו-Lizard Current Day VWAP (יש לך את הספרייה).
+## חיבור ב-BloodHound (5 דקות)
 
-## צעדים ב-Logic Editor
+1. פתח את ה-BloodHound template הקיים שלך → **Logic Editor**
+2. הוסף Solver חדש: **Indicator Threshold** (או Indicator Comparison)
+   - Indicator: **TOAIExporter** → plot: **MLPass**
+   - Condition: **Greater Than** → Value: **0.5**
+   - (כלומר: עובר רק כש-MLPass = 1)
+3. חבר את ה-Solver החדש עם ה-AND Gate הראשי של הסיגנל הקיים
+   - גם ב-Long וגם ב-Short
+4. שמור את ה-template (אפשר בשם חדש: `<שם קיים>_ML`)
 
-1. צ'ארט MES **5min** → הוסף BloodHound → לחץ על שורת ה-BloodHound בפאנל → **Logic Editor**
+מעכשיו: סיגנל עובר ל-BlackBird **רק אם** גם הלוגיקה המקורית ירוקה **וגם** ה-ML מאשר.
 
-2. **צור 4 Solvers ל-Long:**
-   - `A1_EmaFast`: Solver מסוג **Indicator Comparison** → Input A: Gapless EMA period 9, Input B: Gapless EMA period 20, תנאי: **A Greater Than B**
-   - `A2_EmaSlow`: אותו דבר עם EMA 20 מול EMA 50
-   - `B_Squeeze`: **Indicator Threshold** → Indicator: TTM Squeeze (Histogram plot), תנאי: Greater Than 0.
-     לדרישת "שני ברים רצופים": שכפל את ה-Solver ובעותק הגדר **Bars Ago = 1**, או השתמש ב-Confirmed/Consecutive bars אם קיים בגרסה שלך
-   - `C_Vwap`: **Indicator Comparison** → Input A: Close (Price), Input B: Current Day VWAP, תנאי: A Greater Than B
+## איך נקבע "ציון עובר"? (Threshold)
 
-3. **חבר Logic Gate מסוג AND** עם כל ה-Solvers → גרור אל ה-**Long output**
+אחרי כל אימון, TOAI מדפיס **Threshold analysis** — טבלה אמיתית מנתוני הבדיקה:
 
-4. **צור את צד ה-Short:** שכפל כל Solver והפוך את התנאי (Less Than) → AND → **Short output**
+```
+Thresh | Trades kept | Win rate
+   50  |    76 / 150 |  60.5%
+   55  |    69 / 150 |  60.9%
+   60  |    66 / 150 |  60.6%
+   65  |    59 / 150 |  64.4%
+   70  |    55 / 150 |  65.5%
+Baseline (no filter): 53.8%
+```
 
-5. **שמור template:** File → Save As → `LIOR_MES_Entry`
-   (BloodHound שומר ל-`Documents\NinjaTrader 8\templates\BloodHound`)
+**כלל הבחירה:** הסף שבו ה-win rate המסונן גבוה משמעותית מה-baseline,
+אבל עדיין נשארות מספיק עסקאות (2-5 ביום). מתחילים ב-55 ומכווננים.
 
-## בדיקת שפיות (לפני Replay!)
+## איפה מגדירים את הסף?
 
-הסתכל על הצ'ארט אחרי החיבור ובדוק:
-- [ ] סיגנלים מופיעים **1-3 פעמים ביום** (לא 20, לא 0)
-- [ ] Long מופיע רק כשה-EMAs מסודרים למעלה והמחיר מעל VWAP
-- [ ] סיגנלים בסביבת breakout, לא באמצע צריחה צידית
-
-## שלב 3 — Replay Testing (אחרי שהסיגנלים נראים הגיוניים)
-
-נתונים: MES Replay מאי 2026 | TF: 5min | יעד: 50+ trades
-
-| מדד | Target | פסילה |
+| מקום | מה הוא שולט | איך משנים |
 |---|---|---|
-| Win Rate | > 45% | < 35% |
-| Avg Win / Avg Loss | > 1.2 | < 1.0 |
-| Trades per day | 2-5 | > 10 או < 1 |
-| Max consecutive losses | < 5 | > 7 |
+| **NinjaTrader** — TOAIExporter properties → `MinProbabilityThreshold` | ה-gate האמיתי (MLPass + התווית) | בחלון ה-Indicators על הצ'ארט |
+| **Python** — `toai/config.py` → `MIN_PROBABILITY_THRESHOLD` | התצוגה בחלון ה-Watch | עריכת הקובץ |
 
-**כלל זהב:** לא ממשיכים לשלב הבא לפני 50+ trades על Replay.
+**חשוב:** לשמור על שני הערכים זהים.
+
+## חיווי על הגרף
+
+- **באנר למעלה:** `Probability of Win: 62% | TRADE ALLOWED (min 55)` — ירוק כשעובר, אדום כשנחסם (כמו "LONG SKIPPED" של TradeOptima)
+- **פאנל תחתון:** קו כחול = ProbOfTrue, ריבועים ירוקים = MLPass (0/1), קו כתום = threshold

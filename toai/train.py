@@ -63,9 +63,11 @@ def train(df: pd.DataFrame | None = None, features=None, verbose: bool = True):
 
     y_prob = model.predict_proba(X_test)[:, 1]
     pmv = roc_auc_score(y_test, y_prob)
+    report = threshold_report(y_test.to_numpy(), y_prob)
 
     config.MODEL_FILE.parent.mkdir(parents=True, exist_ok=True)
-    joblib.dump({"model": model, "scaler": scaler, "features": features, "pmv": pmv},
+    joblib.dump({"model": model, "scaler": scaler, "features": features, "pmv": pmv,
+                 "threshold_report": report},
                 config.MODEL_FILE)
 
     if verbose:
@@ -77,6 +79,36 @@ def train(df: pd.DataFrame | None = None, features=None, verbose: bool = True):
             print("PMV > 0.5 — the model adds value over random. ✔")
         else:
             print("PMV <= 0.5 — the model does NOT add value yet. Collect more trades.")
+        print()
+        print(format_threshold_report(report, baseline=y.mean() * 100))
         print(f"Model saved to:         {config.MODEL_FILE}")
 
     return model, scaler, pmv
+
+
+def threshold_report(y_true, y_prob, thresholds=(50, 55, 60, 65, 70)):
+    """For each candidate threshold: how many test trades pass, and their win rate.
+
+    This is how the passing score is chosen — pick the threshold where the
+    filtered win rate clearly beats the unfiltered baseline while keeping
+    enough trades per day.
+    """
+    rows = []
+    scores = y_prob * 100
+    for t in thresholds:
+        mask = scores >= t
+        kept = int(mask.sum())
+        win_rate = float(y_true[mask].mean() * 100) if kept else 0.0
+        rows.append({"threshold": t, "trades_kept": kept,
+                     "total": len(y_true), "win_rate": win_rate})
+    return rows
+
+
+def format_threshold_report(report, baseline=None):
+    lines = ["Threshold analysis (on the held-out test set):",
+             "  Thresh | Trades kept | Win rate"]
+    for r in report:
+        lines.append(f"    {r['threshold']:>3}  |  {r['trades_kept']:>4} / {r['total']:<4} |  {r['win_rate']:5.1f}%")
+    if baseline is not None:
+        lines.append(f"  Baseline (no filter): {baseline:.1f}% win rate")
+    return "\n".join(lines)

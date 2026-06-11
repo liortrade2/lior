@@ -46,6 +46,7 @@ namespace NinjaTrader.NinjaScript.Indicators
                 IsOverlay = false;                      // own panel below the chart
 
                 AddPlot(new Stroke(Brushes.DodgerBlue, 2), PlotStyle.Line, "ProbOfTrue");
+                AddPlot(new Stroke(Brushes.LimeGreen, 3), PlotStyle.Square, "MLPass");
                 AddLine(Brushes.OrangeRed, 55, "Threshold");
             }
             else if (State == State.Configure)
@@ -99,17 +100,22 @@ namespace NinjaTrader.NinjaScript.Indicators
                 }
             }
 
-            // Live display: plot in the panel + ALLOW/SKIP label on the chart.
+            // MLPass plot: 1 = score passed the threshold, 0 = blocked.
+            // BloodHound reads this plot as a solver and ANDs it with the
+            // entry signal, so blocked signals never reach BlackBird.
+            Values[1][0] = MlFilterPassed ? 1 : 0;
+
+            // Live display: plot in the panel + ALLOW/SKIP banner on the chart.
             if (!double.IsNaN(probOfTrue))
             {
                 Values[0][0] = probOfTrue;
 
-                string verdict = MlFilterPassed ? "ALLOW" : "SKIP";
+                string verdict = MlFilterPassed ? "TRADE ALLOWED" : "TRADE SKIPPED";
                 Brush color = MlFilterPassed ? Brushes.LimeGreen : Brushes.OrangeRed;
                 Draw.TextFixed(this, "TOAIScore",
-                    string.Format("TOAI ProbOfTrue: {0:F1}  |  {1}  (threshold {2})",
+                    string.Format("Probability of Win: {0:F0}%  |  {1}  (min {2})",
                         probOfTrue, verdict, MinProbabilityThreshold),
-                    TextPosition.TopRight, color, new SimpleFont("Arial", 14),
+                    TextPosition.TopRight, color, new SimpleFont("Arial", 16) { Bold = true },
                     Brushes.Transparent, Brushes.Transparent, 0);
             }
             else
