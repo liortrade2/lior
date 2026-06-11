@@ -18,14 +18,15 @@ MENU = """
   2. Train model + show PMV score
   3. Score latest bar (one-shot)
   4. Watch mode (real-time scoring loop for NinjaTrader)
-  5. Exit
+  5. Open control panel (GUI — like the TradeOptima app)
+  6. Exit
 """
 
 
 def main():
     while True:
         print(MENU.format(data_dir=config.DATA_DIR))
-        choice = input("Select option [1-5]: ").strip()
+        choice = input("Select option [1-6]: ").strip()
 
         if choice == "1":
             from toai.simulate import write_sample_files
@@ -61,6 +62,10 @@ def main():
                 print(f"Missing file: {e.filename}. Train a model first (option 2).")
 
         elif choice == "5":
+            from toai.gui import main as gui_main
+            gui_main()
+
+        elif choice == "6":
             sys.exit(0)
 
         else:

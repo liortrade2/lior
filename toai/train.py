@@ -20,20 +20,22 @@ PARAM_GRID = {
 }
 
 
-def load_training_data(path=None) -> pd.DataFrame:
+def load_training_data(path=None, features=None) -> pd.DataFrame:
     path = path or config.TRAINING_FILE
+    features = features or config.FEATURES
     df = pd.read_csv(path)
-    missing = [c for c in config.FEATURES + [config.TARGET_COLUMN] if c not in df.columns]
+    missing = [c for c in features + [config.TARGET_COLUMN] if c not in df.columns]
     if missing:
         raise ValueError(f"Training file {path} is missing columns: {missing}")
-    return df.dropna(subset=config.FEATURES + [config.TARGET_COLUMN])
+    return df.dropna(subset=features + [config.TARGET_COLUMN])
 
 
-def train(df: pd.DataFrame | None = None, verbose: bool = True):
+def train(df: pd.DataFrame | None = None, features=None, verbose: bool = True):
+    features = features or config.FEATURES
     if df is None:
-        df = load_training_data()
+        df = load_training_data(features=features)
 
-    X = df[config.FEATURES]
+    X = df[features]
     y = (df[config.TARGET_COLUMN] > 0).astype(int)
 
     if y.nunique() < 2:
@@ -63,7 +65,7 @@ def train(df: pd.DataFrame | None = None, verbose: bool = True):
     pmv = roc_auc_score(y_test, y_prob)
 
     config.MODEL_FILE.parent.mkdir(parents=True, exist_ok=True)
-    joblib.dump({"model": model, "scaler": scaler, "features": config.FEATURES, "pmv": pmv},
+    joblib.dump({"model": model, "scaler": scaler, "features": features, "pmv": pmv},
                 config.MODEL_FILE)
 
     if verbose:

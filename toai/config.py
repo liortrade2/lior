@@ -7,8 +7,13 @@ from pathlib import Path
 # Anywhere else (development, testing) we use a local ./data directory.
 if platform.system() == "Windows":
     DATA_DIR = Path(os.environ.get("TOAI_DATA_DIR", r"C:\LIOR_ML"))
+    TEMPLATES_DIR = Path(os.environ.get(
+        "TOAI_TEMPLATES_DIR",
+        Path.home() / "Documents" / "NinjaTrader 8" / "templates" / "BlackBird"))
 else:
     DATA_DIR = Path(os.environ.get("TOAI_DATA_DIR", Path(__file__).resolve().parent.parent / "data"))
+    TEMPLATES_DIR = Path(os.environ.get(
+        "TOAI_TEMPLATES_DIR", Path(__file__).resolve().parent.parent / "templates"))
 
 TRAINING_FILE = DATA_DIR / "training_data.csv"
 TRADE_LOG_FILE = DATA_DIR / "trade_log.csv"
