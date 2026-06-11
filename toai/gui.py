@@ -36,7 +36,7 @@ class ToaiPanel(tk.Tk):
         root = ttk.Frame(self, padding=10)
         root.pack(fill=tk.BOTH, expand=True)
         root.columnconfigure(1, weight=1)
-        root.rowconfigure(2, weight=1)
+        root.rowconfigure(3, weight=1)
 
         # Strategy template picker
         strat = ttk.LabelFrame(root, text="Strategy (BlackBird template)", padding=8)
@@ -48,16 +48,29 @@ class ToaiPanel(tk.Tk):
         self.templates_label = ttk.Label(strat, text=str(config.TEMPLATES_DIR), foreground="gray")
         self.templates_label.grid(row=1, column=0, columnspan=2, sticky="w", pady=(4, 0))
 
+        # Backtest & data flow
+        bktest = ttk.LabelFrame(root, text="Backtest data (from Strategy Analyzer)", padding=8)
+        bktest.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(0, 8))
+        bktest.columnconfigure(0, weight=1)
+        info = ttk.Label(bktest, text="1. Export trades from Strategy Analyzer Trades tab (right-click)  →  save as:\n   " +
+                         str(config.DATA_DIR / "trades_export.csv") +
+                         "\n2. Load chart with TOAIExporter (ExportBarData=true) to build bar_data.csv\n3. Click below to merge & train",
+                         wraplength=600, justify=tk.LEFT)
+        info.grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 6))
+        self.refresh_btn = ttk.Button(bktest, text="Refresh from Strategy Analyzer", command=self._refresh_from_backtest)
+        self.refresh_btn.grid(row=1, column=0, sticky="ew", padx=(0, 6))
+        ttk.Button(bktest, text="Open folder", command=self._open_data_dir).grid(row=1, column=1)
+
         # Training file picker
-        filef = ttk.LabelFrame(root, text="Training file", padding=8)
-        filef.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(0, 8))
+        filef = ttk.LabelFrame(root, text="Training file (auto-generated)", padding=8)
+        filef.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(0, 8))
         filef.columnconfigure(0, weight=1)
-        ttk.Entry(filef, textvariable=self.training_file).grid(row=0, column=0, sticky="ew", padx=(0, 6))
+        ttk.Entry(filef, textvariable=self.training_file, state=tk.DISABLED).grid(row=0, column=0, sticky="ew", padx=(0, 6))
         ttk.Button(filef, text="Browse…", command=self._browse_training).grid(row=0, column=1)
 
         # Features checklist (left) + log (right)
         feats = ttk.LabelFrame(root, text="Features", padding=8)
-        feats.grid(row=2, column=0, sticky="nsw", padx=(0, 8))
+        feats.grid(row=3, column=0, sticky="nsw", padx=(0, 8))
         for i, (name, var) in enumerate(self.feature_vars.items()):
             ttk.Checkbutton(feats, text=name, variable=var).grid(row=i, column=0, sticky="w")
         btns = ttk.Frame(feats)
@@ -68,7 +81,7 @@ class ToaiPanel(tk.Tk):
                    command=lambda: self._set_all(False)).pack(side=tk.LEFT, padx=2)
 
         logf = ttk.LabelFrame(root, text="Log", padding=4)
-        logf.grid(row=2, column=1, sticky="nsew")
+        logf.grid(row=3, column=1, sticky="nsew")
         logf.columnconfigure(0, weight=1)
         logf.rowconfigure(0, weight=1)
         self.log = tk.Text(logf, height=10, state=tk.DISABLED, wrap="word")
@@ -76,7 +89,7 @@ class ToaiPanel(tk.Tk):
 
         # Bottom: action buttons + PMV display
         bottom = ttk.Frame(root)
-        bottom.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(10, 0))
+        bottom.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(10, 0))
         self.calc_btn = ttk.Button(bottom, text="Calculate Decision Boundary",
                                    command=self._calculate)
         self.calc_btn.pack(side=tk.LEFT, padx=(0, 6))
@@ -119,6 +132,64 @@ class ToaiPanel(tk.Tk):
             filetypes=[("CSV files", "*.csv"), ("All files", "*.*")])
         if path:
             self.training_file.set(path)
+
+    def _open_data_dir(self):
+        import subprocess, sys
+        config.DATA_DIR.mkdir(parents=True, exist_ok=True)
+        if sys.platform == "win32":
+            subprocess.Popen(["explorer", str(config.DATA_DIR)])
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", str(config.DATA_DIR)])
+        else:
+            subprocess.Popen(["xdg-open", str(config.DATA_DIR)])
+
+    def _refresh_from_backtest(self):
+        trades_file = config.DATA_DIR / "trades_export.csv"
+        bar_file = config.BAR_DATA_FILE
+        if not trades_file.exists():
+            messagebox.showwarning(
+                "TOAI",
+                f"trades_export.csv not found at:\n\n{trades_file}\n\n"
+                f"Steps:\n"
+                f"1. In NinjaTrader: Strategy Analyzer → run backtest\n"
+                f"2. Trades tab → right-click → Export\n"
+                f"3. Save as the file above\n\n"
+                f"Then click Refresh again.")
+            self._open_data_dir()
+            return
+        if not bar_file.exists():
+            messagebox.showwarning(
+                "TOAI",
+                f"bar_data.csv not found at:\n\n{bar_file}\n\n"
+                f"Load a chart with TOAIExporter indicator (ExportBarData=true)\n"
+                f"covering the same period as your backtest, then click Refresh.")
+            return
+        self.refresh_btn.configure(state=tk.DISABLED)
+        self._log("Merging backtest with bar data and training…")
+        threading.Thread(target=self._refresh_worker, daemon=True).start()
+
+    def _refresh_worker(self):
+        from .build_and_train import build_and_train
+        try:
+            ok = build_and_train()
+            if ok:
+                self.after(0, self._refresh_done)
+            else:
+                self.after(0, self._refresh_failed, "Merge or training failed — see output above")
+        except Exception as e:
+            self.after(0, self._refresh_failed, str(e))
+
+    def _refresh_done(self):
+        self.refresh_btn.configure(state=tk.NORMAL)
+        self._log("Done. Restart TOAI_Watch.bat to load the new model.")
+        messagebox.showinfo("TOAI", "Model trained successfully.\n\n"
+                           "Restart TOAI_Watch.bat so it loads the new model,\n"
+                           "then check the scores on your live chart.")
+
+    def _refresh_failed(self, err):
+        self.refresh_btn.configure(state=tk.NORMAL)
+        self._log(f"Error: {err}")
+        messagebox.showerror("TOAI", f"Training failed:\n\n{err}")
 
     # ---------- actions ----------
 
