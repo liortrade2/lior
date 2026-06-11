@@ -28,12 +28,20 @@ namespace NinjaTrader.NinjaScript.Indicators
     {
         private const string DataDir = @"C:\LIOR_ML";
         private const string FeaturesFile = DataDir + @"\current_features.csv";
+        private const string BarDataFile = DataDir + @"\bar_data.csv";
         private const string ScoreFile = DataDir + @"\score.txt";
         private const string Header =
             "ATR20,EMA9,EMA20,EMA50,RSI14,ADX14,Distance_SwingHigh,Distance_SwingLow,Volume_Ratio,BBand_Width,ZScore";
 
         [NinjaScriptProperty]
         public double MinProbabilityThreshold { get; set; } = 55.0;
+
+        // When true, every bar (including the full chart history) is appended
+        // to bar_data.csv with its DateTime — the raw material that gets
+        // joined with the Strategy Analyzer trades export to build the real
+        // training_data.csv (python main.py -> merge option).
+        [NinjaScriptProperty]
+        public bool ExportBarData { get; set; } = true;
 
         public bool MlFilterPassed { get; private set; }
 
@@ -56,6 +64,8 @@ namespace NinjaTrader.NinjaScript.Indicators
             else if (State == State.DataLoaded)
             {
                 System.IO.Directory.CreateDirectory(DataDir);
+                if (ExportBarData && !System.IO.File.Exists(BarDataFile))
+                    System.IO.File.WriteAllText(BarDataFile, "DateTime," + Header + Environment.NewLine);
             }
         }
 
@@ -83,6 +93,13 @@ namespace NinjaTrader.NinjaScript.Indicators
                 bbWidth,
                 zScore);
 
+            // Historical export: one row per bar, used to build the real
+            // training file from a Strategy Analyzer backtest.
+            if (ExportBarData)
+                System.IO.File.AppendAllText(BarDataFile,
+                    Time[0].ToString("yyyy-MM-dd HH:mm:ss") + "," + line + Environment.NewLine);
+
+            // Real-time bridge: only meaningful when Python watch mode is running.
             System.IO.File.WriteAllText(FeaturesFile, Header + Environment.NewLine + line + Environment.NewLine);
 
             // Read back the score written by: python main.py -> option 4 (watch mode)

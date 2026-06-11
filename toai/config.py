@@ -16,6 +16,7 @@ else:
         "TOAI_TEMPLATES_DIR", Path(__file__).resolve().parent.parent / "templates"))
 
 TRAINING_FILE = DATA_DIR / "training_data.csv"
+BAR_DATA_FILE = DATA_DIR / "bar_data.csv"
 TRADE_LOG_FILE = DATA_DIR / "trade_log.csv"
 CURRENT_FEATURES_FILE = DATA_DIR / "current_features.csv"
 MODEL_FILE = DATA_DIR / "model.pkl"
