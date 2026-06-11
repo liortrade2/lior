@@ -4,13 +4,20 @@
 // and reads C:\LIOR_ML\score.txt (written by the Python watch mode) to decide
 // whether the ML filter allows the next signal.
 //
+// Display: the live ProbOfTrue score (0-100) is plotted in the indicator
+// panel with the threshold line, plus an ALLOW/SKIP label on the chart.
+//
 // Import into NinjaTrader 8: New > NinjaScript Editor > Indicators, paste, compile.
 // Column order MUST match toai/config.py FEATURES.
 
 #region Using declarations
 using System;
+using System.Windows.Media;
 using NinjaTrader.Cbi;
+using NinjaTrader.Gui;
+using NinjaTrader.Gui.Chart;
 using NinjaTrader.NinjaScript;
+using NinjaTrader.NinjaScript.DrawingTools;
 using NinjaTrader.NinjaScript.Indicators;
 #endregion
 
@@ -35,7 +42,14 @@ namespace NinjaTrader.NinjaScript.Indicators
             {
                 Name = "TOAIExporter";
                 Calculate = Calculate.OnBarClose;
-                IsOverlay = false;
+                IsOverlay = false;                      // own panel below the chart
+
+                AddPlot(new Stroke(Brushes.DodgerBlue, 2), PlotStyle.Line, "ProbOfTrue");
+                AddLine(Brushes.OrangeRed, 55, "Threshold");
+            }
+            else if (State == State.Configure)
+            {
+                Lines[0].Value = MinProbabilityThreshold;
             }
             else if (State == State.DataLoaded)
             {
@@ -71,11 +85,38 @@ namespace NinjaTrader.NinjaScript.Indicators
 
             // Read back the score written by: python main.py -> option 4 (watch mode)
             MlFilterPassed = false;
+            double probOfTrue = double.NaN;
             if (System.IO.File.Exists(ScoreFile))
             {
-                double probOfTrue;
-                if (double.TryParse(System.IO.File.ReadAllText(ScoreFile).Trim(), out probOfTrue))
+                double parsed;
+                if (double.TryParse(ScoreFile.Length > 0 ? System.IO.File.ReadAllText(ScoreFile).Trim() : "",
+                        System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out parsed))
+                {
+                    probOfTrue = parsed;
                     MlFilterPassed = probOfTrue >= MinProbabilityThreshold;
+                }
+            }
+
+            // Live display: plot in the panel + ALLOW/SKIP label on the chart.
+            if (!double.IsNaN(probOfTrue))
+            {
+                Values[0][0] = probOfTrue;
+
+                string verdict = MlFilterPassed ? "ALLOW" : "SKIP";
+                Brush color = MlFilterPassed ? Brushes.LimeGreen : Brushes.OrangeRed;
+                Draw.TextFixed(this, "TOAIScore",
+                    string.Format("TOAI ProbOfTrue: {0:F1}  |  {1}  (threshold {2})",
+                        probOfTrue, verdict, MinProbabilityThreshold),
+                    TextPosition.TopRight, color, new SimpleFont("Arial", 14),
+                    Brushes.Transparent, Brushes.Transparent, 0);
+            }
+            else
+            {
+                Draw.TextFixed(this, "TOAIScore",
+                    "TOAI: no score.txt — run: python main.py -> option 4 (watch mode)",
+                    TextPosition.TopRight, Brushes.Gray, new SimpleFont("Arial", 12),
+                    Brushes.Transparent, Brushes.Transparent, 0);
             }
         }
     }
