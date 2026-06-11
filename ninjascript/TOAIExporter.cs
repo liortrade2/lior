@@ -12,11 +12,11 @@
 
 #region Using declarations
 using System;
-using System.Drawing;
 using System.Windows.Media;
 using NinjaTrader.Cbi;
 using NinjaTrader.Gui;
 using NinjaTrader.Gui.Chart;
+using NinjaTrader.Gui.Tools;
 using NinjaTrader.NinjaScript;
 using NinjaTrader.NinjaScript.DrawingTools;
 using NinjaTrader.NinjaScript.Indicators;
@@ -109,13 +109,15 @@ namespace NinjaTrader.NinjaScript.Indicators
                 Draw.TextFixed(this, "TOAIScore",
                     string.Format("TOAI ProbOfTrue: {0:F1}  |  {1}  (threshold {2})",
                         probOfTrue, verdict, MinProbabilityThreshold),
-                    TextPosition.TopRight, color, Brushes.Black, Brushes.Transparent, 0);
+                    TextPosition.TopRight, color, new SimpleFont("Arial", 14),
+                    Brushes.Transparent, Brushes.Transparent, 0);
             }
             else
             {
                 Draw.TextFixed(this, "TOAIScore",
                     "TOAI: no score.txt — run: python main.py -> option 4 (watch mode)",
-                    TextPosition.TopRight, Brushes.Gray, Brushes.Black, Brushes.Transparent, 0);
+                    TextPosition.TopRight, Brushes.Gray, new SimpleFont("Arial", 12),
+                    Brushes.Transparent, Brushes.Transparent, 0);
             }
         }
     }
