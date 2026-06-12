@@ -48,6 +48,13 @@ namespace NinjaTrader.NinjaScript.Indicators
         [NinjaScriptProperty]
         public double MinProbabilityThreshold { get; set; } = 55.0;
 
+        // TradeOptima-style vertical band over the signal bar:
+        // green = ML allows, red = ML skips.
+        [NinjaScriptProperty]
+        public bool ShowSignalBand { get; set; } = true;
+
+        private Brush passBand, skipBand;
+
         protected override void OnStateChange()
         {
             if (State == State.SetDefaults)
@@ -58,6 +65,13 @@ namespace NinjaTrader.NinjaScript.Indicators
                 DrawOnPricePanel = true;
                 DisplayInDataBox = false;
                 PaintPriceMarkers = false;
+            }
+            else if (State == State.Configure)
+            {
+                passBand = new SolidColorBrush(Color.FromArgb(45, 50, 205, 50));
+                passBand.Freeze();
+                skipBand = new SolidColorBrush(Color.FromArgb(45, 255, 60, 30));
+                skipBand.Freeze();
             }
             else if (State == State.DataLoaded)
             {
@@ -71,8 +85,21 @@ namespace NinjaTrader.NinjaScript.Indicators
         protected override void OnBarUpdate()
         {
             // Input is the BloodHound signal plot: 0 = no signal on this bar.
-            if (double.IsNaN(Input[0]) || Math.Abs(Input[0]) < 0.5)
+            double signal = Input[0];
+            if (double.IsNaN(signal) || Math.Abs(signal) < 0.5)
                 return;
+
+            // A signal plot is 1 / -1. Price is in the thousands — if we see
+            // that, the Input series was left on price: warn instead of
+            // spraying a label on every single bar.
+            if (Math.Abs(signal) > 1.5)
+            {
+                Draw.TextFixed(this, "TOAIBadInput",
+                    "TOAISignalLabel: set Input series to the BloodHound signal plot (not price)!",
+                    TextPosition.BottomRight, Brushes.Yellow, new SimpleFont("Arial", 13) { Bold = true },
+                    Brushes.Transparent, Brushes.Transparent, 0);
+                return;
+            }
 
             // Precomputed score first (history + Playback); for a true live
             // bar that is not in bar_scores.csv yet, fall back to score.txt.
@@ -104,15 +131,23 @@ namespace NinjaTrader.NinjaScript.Indicators
             if (State != State.Historical)
                 MinProbabilityThreshold = TOAIExporter.ReadThreshold(ThresholdFile, MinProbabilityThreshold);
             bool passed = probOfTrue >= MinProbabilityThreshold;
-            string text = passed
-                ? string.Format("{0:F0}%", probOfTrue)
-                : string.Format("SKIP {0:F0}%", probOfTrue);
-            Brush color = passed ? Brushes.LimeGreen : Brushes.OrangeRed;
 
-            // Bars.GetHigh = the real price high of the chart bar (Input[0]
-            // here is the signal value, so High[0] would be wrong).
-            double y = Bars.GetHigh(CurrentBar) + 4 * TickSize;
-            Draw.Text(this, "TOAISig" + CurrentBar, text, 0, y, color);
+            // TradeOptima look: vertical band over the signal bar, and the
+            // score as a badge INSIDE the candle (white text on green/red).
+            // Bars.GetHigh/GetLow = the real prices of the chart bar
+            // (Input[0] here is the signal value, so High[0] would be wrong).
+            if (ShowSignalBand)
+                Draw.RegionHighlightX(this, "TOAIBand" + CurrentBar, 0, 0,
+                    passed ? passBand : skipBand);
+
+            double mid = (Bars.GetHigh(CurrentBar) + Bars.GetLow(CurrentBar)) / 2;
+            string text = string.Format("{0:F0}%", probOfTrue);
+            Draw.Text(this, "TOAISig" + CurrentBar, false, text,
+                0, mid, 0, Brushes.White,
+                new SimpleFont("Arial", 12) { Bold = true },
+                System.Windows.TextAlignment.Center,
+                Brushes.Transparent,
+                passed ? Brushes.Green : Brushes.Red, 85);
         }
     }
 }

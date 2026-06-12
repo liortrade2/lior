@@ -98,8 +98,14 @@ TOAI_Train.bat), בכל הפעלה של TOAI_Watch.bat, או ידנית: `python
 ## חיווי על הגרף
 
 - **באנר למעלה (TOAIExporter):** `Probability of Win: 62% | TRADE ALLOWED (min 55)` — ירוק כשעובר, אדום כשנחסם
-- **תווית מעל בר עם סיגנל בלבד (TOAISignalLabel):** ירוק `62%` = ה-gate פתוח, אדום `SKIP 29%` = חסום
+- **על בר עם סיגנל בלבד (TOAISignalLabel, כמו TradeOptima):** המספר בתוך הנר
+  על תגית ירוקה (`72%` = עובר) או אדומה (`13%` = נחסם), ופס אנכי ירוק/אדום
+  לכל גובה הצ'ארט (ניתן לכיבוי: `ShowSignalBand = false`)
 - **פאנל תחתון (TOAIExporter):** קו כחול = ProbOfTrue, ריבועים ירוקים = MLPass (0/1), קו כתום = threshold
+
+**חובה:** ה-Input series של TOAISignalLabel חייב להיות ה-plot של BloodHound
+(לא מחיר!). אם הוא נשאר על מחיר — תופיע אזהרה צהובה בפינה הימנית-תחתונה
+במקום תוויות על כל בר.
 
 ## TOAISignalLabel — תווית רק על בר עם סיגנל
 
