@@ -26,12 +26,13 @@ namespace NinjaTrader.NinjaScript.Indicators
 {
     public class TOAIExporter : Indicator
     {
-        private const string DataDir = @"C:\LIOR_ML";
-        private const string FeaturesFile = DataDir + @"\current_features.csv";
-        private const string BarDataFile = DataDir + @"\bar_data.csv";
-        private const string ScoreFile = DataDir + @"\score.txt";
-        private const string BarScoresFile = DataDir + @"\bar_scores.csv";
-        private const string ThresholdFile = DataDir + @"\threshold.txt";
+        // Multi-chart layout: every instrument writes into its own folder
+        // under the root (C:\LIOR_ML\ES, C:\LIOR_ML\NQ, ...) so several
+        // charts run side by side without clobbering each other's files.
+        // threshold.txt stays at the ROOT — one threshold for all charts.
+        private const string RootDir = @"C:\LIOR_ML";
+        private const string ThresholdFile = RootDir + @"\threshold.txt";
+        private string dataDir, featuresFile, barDataFile, scoreFile, barScoresFile;
         private const string Header =
             "ATR20,EMA9,EMA20,EMA50,RSI14,ADX14,Distance_SwingHigh,Distance_SwingLow,Volume_Ratio,BBand_Width,ZScore";
 
@@ -86,19 +87,24 @@ namespace NinjaTrader.NinjaScript.Indicators
             }
             else if (State == State.DataLoaded)
             {
+                dataDir = RootDir + @"\" + SanitizeName(Instrument.MasterInstrument.Name);
+                featuresFile = dataDir + @"\current_features.csv";
+                barDataFile = dataDir + @"\bar_data.csv";
+                scoreFile = dataDir + @"\score.txt";
+                barScoresFile = dataDir + @"\bar_scores.csv";
                 try
                 {
-                    System.IO.Directory.CreateDirectory(DataDir);
+                    System.IO.Directory.CreateDirectory(dataDir);
                     if (ExportBarData)
                     {
                         ArchiveBarDataOnTimeframeChange();
-                        if (!System.IO.File.Exists(BarDataFile))
-                            System.IO.File.WriteAllText(BarDataFile, "DateTime," + Header + Environment.NewLine);
-                        exportedStamps = LoadExportedStamps(BarDataFile, ref ioError);
+                        if (!System.IO.File.Exists(barDataFile))
+                            System.IO.File.WriteAllText(barDataFile, "DateTime," + Header + Environment.NewLine);
+                        exportedStamps = LoadExportedStamps(barDataFile, ref ioError);
                     }
                 }
                 catch (Exception ex) { ioError = ex.Message; }
-                scoreMap = LoadScoreMap(BarScoresFile, ref ioError);
+                scoreMap = LoadScoreMap(barScoresFile, ref ioError);
                 MinProbabilityThreshold = ReadThreshold(ThresholdFile, MinProbabilityThreshold);
                 Lines[0].Value = MinProbabilityThreshold;
             }
@@ -117,19 +123,31 @@ namespace NinjaTrader.NinjaScript.Indicators
         private void ArchiveBarDataOnTimeframeChange()
         {
             string tf = BarsPeriod.BarsPeriodType + "-" + BarsPeriod.Value;
-            string metaPath = DataDir + @"\bar_data_tf.txt";
+            string metaPath = dataDir + @"\bar_data_tf.txt";
             string prev = System.IO.File.Exists(metaPath)
                 ? System.IO.File.ReadAllText(metaPath).Trim() : null;
-            if (prev != null && prev != tf && System.IO.File.Exists(BarDataFile))
+            if (prev != null && prev != tf && System.IO.File.Exists(barDataFile))
             {
-                string archive = DataDir + @"\bar_data_" + prev + "_" +
+                string archive = dataDir + @"\bar_data_" + prev + "_" +
                     DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".csv";
-                System.IO.File.Move(BarDataFile, archive);
-                if (System.IO.File.Exists(BarScoresFile))
-                    System.IO.File.Delete(BarScoresFile);
+                System.IO.File.Move(barDataFile, archive);
+                if (System.IO.File.Exists(barScoresFile))
+                    System.IO.File.Delete(barScoresFile);
             }
             if (prev != tf)
                 System.IO.File.WriteAllText(metaPath, tf);
+        }
+
+        // "ES JUN26" charts share the master name "ES"; anything that is
+        // not a letter or digit becomes '_' so the name is always a valid
+        // folder. Shared with TOAISignalLabel.
+        internal static string SanitizeName(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return "UNKNOWN";
+            var sb = new System.Text.StringBuilder(name.Length);
+            foreach (char c in name)
+                sb.Append(char.IsLetterOrDigit(c) ? c : '_');
+            return sb.ToString();
         }
 
         // Shared with TOAISignalLabel: the single-source-of-truth threshold.
@@ -212,7 +230,7 @@ namespace NinjaTrader.NinjaScript.Indicators
             if (histBuffer == null || histBuffer.Length == 0) return;
             try
             {
-                System.IO.File.AppendAllText(BarDataFile, histBuffer.ToString());
+                System.IO.File.AppendAllText(barDataFile, histBuffer.ToString());
                 histBuffer.Clear();
             }
             catch (Exception ex) { ioError = ex.Message; }
@@ -271,10 +289,10 @@ namespace NinjaTrader.NinjaScript.Indicators
             try
             {
                 if (ExportBarData && (exportedStamps == null || exportedStamps.Add(Time[0])))
-                    System.IO.File.AppendAllText(BarDataFile, stamped);
+                    System.IO.File.AppendAllText(barDataFile, stamped);
 
                 // Real-time bridge: only meaningful when Python watch mode is running.
-                System.IO.File.WriteAllText(FeaturesFile, Header + Environment.NewLine + line + Environment.NewLine);
+                System.IO.File.WriteAllText(featuresFile, Header + Environment.NewLine + line + Environment.NewLine);
             }
             catch (Exception ex) { ioError = ex.Message; }
 
@@ -294,9 +312,9 @@ namespace NinjaTrader.NinjaScript.Indicators
             {
                 try
                 {
-                    if (System.IO.File.Exists(ScoreFile))
+                    if (System.IO.File.Exists(scoreFile))
                     {
-                        string scoreContent = System.IO.File.ReadAllText(ScoreFile).Trim();
+                        string scoreContent = System.IO.File.ReadAllText(scoreFile).Trim();
                         double parsed;
                         if (double.TryParse(scoreContent,
                                 System.Globalization.NumberStyles.Float,

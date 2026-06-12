@@ -6,23 +6,53 @@ from pathlib import Path
 # On the trading machine (Windows) NinjaTrader writes to C:\LIOR_ML.
 # Anywhere else (development, testing) we use a local ./data directory.
 if platform.system() == "Windows":
-    DATA_DIR = Path(os.environ.get("TOAI_DATA_DIR", r"C:\LIOR_ML"))
+    DATA_ROOT = Path(os.environ.get("TOAI_DATA_DIR", r"C:\LIOR_ML"))
     TEMPLATES_DIR = Path(os.environ.get(
         "TOAI_TEMPLATES_DIR",
         Path.home() / "Documents" / "NinjaTrader 8" / "templates" / "BlackBird"))
 else:
-    DATA_DIR = Path(os.environ.get("TOAI_DATA_DIR", Path(__file__).resolve().parent.parent / "data"))
+    DATA_ROOT = Path(os.environ.get("TOAI_DATA_DIR", Path(__file__).resolve().parent.parent / "data"))
     TEMPLATES_DIR = Path(os.environ.get(
         "TOAI_TEMPLATES_DIR", Path(__file__).resolve().parent.parent / "templates"))
 
-TRAINING_FILE = DATA_DIR / "training_data.csv"
-BAR_DATA_FILE = DATA_DIR / "bar_data.csv"
-TRADE_LOG_FILE = DATA_DIR / "trade_log.csv"
-CURRENT_FEATURES_FILE = DATA_DIR / "current_features.csv"
-MODEL_FILE = DATA_DIR / "model.pkl"
-SCORE_FILE = DATA_DIR / "score.txt"
-BAR_SCORES_FILE = DATA_DIR / "bar_scores.csv"
-THRESHOLD_FILE = DATA_DIR / "threshold.txt"
+# Multi-instrument layout: every instrument gets its own subdirectory under
+# DATA_ROOT (C:\LIOR_ML\ES, C:\LIOR_ML\NQ, ...) holding its bar data, model
+# and scores — so several charts run side by side without overwriting each
+# other. TOAIExporter picks the folder from the chart's instrument; here the
+# active folder is selected with set_instrument(). INSTRUMENT = None keeps
+# the legacy single-instrument layout (everything directly in the root).
+# threshold.txt always stays at the ROOT — one threshold for all charts.
+INSTRUMENT = os.environ.get("TOAI_INSTRUMENT") or None
+
+THRESHOLD_FILE = DATA_ROOT / "threshold.txt"
+
+
+def set_instrument(name: str | None):
+    """Point all data paths at DATA_ROOT/<name> (None = the root itself)."""
+    global INSTRUMENT, DATA_DIR, TRAINING_FILE, BAR_DATA_FILE, TRADE_LOG_FILE, \
+        CURRENT_FEATURES_FILE, MODEL_FILE, SCORE_FILE, BAR_SCORES_FILE
+    INSTRUMENT = name or None
+    DATA_DIR = DATA_ROOT / INSTRUMENT if INSTRUMENT else DATA_ROOT
+    TRAINING_FILE = DATA_DIR / "training_data.csv"
+    BAR_DATA_FILE = DATA_DIR / "bar_data.csv"
+    TRADE_LOG_FILE = DATA_DIR / "trade_log.csv"
+    CURRENT_FEATURES_FILE = DATA_DIR / "current_features.csv"
+    MODEL_FILE = DATA_DIR / "model.pkl"
+    SCORE_FILE = DATA_DIR / "score.txt"
+    BAR_SCORES_FILE = DATA_DIR / "bar_scores.csv"
+
+
+set_instrument(INSTRUMENT)
+
+
+def list_instruments() -> list[str]:
+    """Instrument subdirectories under DATA_ROOT that contain TOAI data."""
+    if not DATA_ROOT.is_dir():
+        return []
+    return sorted(
+        p.name for p in DATA_ROOT.iterdir()
+        if p.is_dir() and any((p / f).exists() for f in
+                              ("current_features.csv", "bar_data.csv", "model.pkl")))
 
 # The 11 features from the LIOR Quant System build map.
 # Names must match the CSV header written by the NinjaScript Exporter.
@@ -64,7 +94,7 @@ def set_threshold(value: float) -> float:
     value = float(value)
     if not 0 <= value <= 100:
         raise ValueError("Threshold must be between 0 and 100.")
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    DATA_ROOT.mkdir(parents=True, exist_ok=True)
     THRESHOLD_FILE.write_text(f"{value:g}")
     global MIN_PROBABILITY_THRESHOLD
     MIN_PROBABILITY_THRESHOLD = value

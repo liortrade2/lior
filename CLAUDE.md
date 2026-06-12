@@ -43,6 +43,10 @@ ninjascript/
 - **Windows (מכונת המסחר):** `C:\LIOR_ML\` (ברירת מחדל)
 - **אחר / פיתוח:** `./data/` בתיקיית הפרויקט
 - ניתן לעקוף עם משתנה סביבה `TOAI_DATA_DIR`
+- **רב-מכשירי:** כל מכשיר בתת-תיקייה משלו (`C:\LIOR_ML\ES\`, `C:\LIOR_ML\NQ\`…)
+  עם bar_data/model/scores משלו — כמה גרפים רצים במקביל. ‏exports של
+  Strategy Analyzer נשמרים ל-root ומנותבים אוטומטית לפי עמודת Instrument.
+  ‏`threshold.txt` נשאר ב-root — סף אחד לכל הגרפים.
 
 ## 🧪 בדיקה מהירה (בלי NinjaTrader)
 ```bash

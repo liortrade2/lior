@@ -10,6 +10,14 @@ TOAI מחשב Probability-of-Win לכל בר, BloodHound בודק את `TOAIExpo
 
 ## ארכיטקטורה — קבצים ב-C:\LIOR_ML (הנתונים, לא ב-git)
 
+**רב-מכשירי (2026-06-11):** כל מכשיר בתת-תיקייה משלו — `C:\LIOR_ML\ES\`,
+`C:\LIOR_ML\NQ\`… — וכל הקבצים בטבלה (חוץ מ-threshold.txt וה-exports)
+חיים בתוכה. ‏TOAIExporter/TOAISignalLabel גוזרים את התיקייה מהמכשיר של
+הגרף; ה-Watch האחד מנטר את כל התיקיות במקביל ומדפיס `[ES] ProbOfTrue…`;
+‏export של Strategy Analyzer נשמר ל-root ומנותב אוטומטית לפי עמודת
+Instrument. ‏threshold.txt נשאר ב-root — סף אחד לכל הגרפים. מגבלה:
+‏timeframe אחד פעיל לכל מכשיר (שני גרפים של אותו מכשיר ב-TF שונה יתנגשו).
+
 | קובץ | מי כותב | מי קורא |
 |---|---|---|
 | bar_data.csv | TOAIExporter (כל בר + 11 features גולמיים) | merge / score_history |

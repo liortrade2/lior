@@ -37,9 +37,12 @@ namespace NinjaTrader.NinjaScript.Indicators
 {
     public class TOAISignalLabel : Indicator
     {
-        private const string ScoreFile = @"C:\LIOR_ML\score.txt";
-        private const string BarScoresFile = @"C:\LIOR_ML\bar_scores.csv";
-        private const string ThresholdFile = @"C:\LIOR_ML\threshold.txt";
+        // Per-instrument folder (C:\LIOR_ML\ES, ...), resolved at DataLoaded
+        // from the chart's instrument — matches TOAIExporter's layout.
+        // threshold.txt stays at the ROOT — one threshold for all charts.
+        private const string RootDir = @"C:\LIOR_ML";
+        private const string ThresholdFile = RootDir + @"\threshold.txt";
+        private string scoreFile, barScoresFile;
 
         // Precomputed per-bar scores — labels work retroactively on
         // historical bars and in Playback, not only live.
@@ -81,8 +84,13 @@ namespace NinjaTrader.NinjaScript.Indicators
             }
             else if (State == State.DataLoaded)
             {
+                // Bars = the chart's bars, regardless of the signal-plot input.
+                string dataDir = RootDir + @"\" +
+                    TOAIExporter.SanitizeName(Bars.Instrument.MasterInstrument.Name);
+                scoreFile = dataDir + @"\score.txt";
+                barScoresFile = dataDir + @"\bar_scores.csv";
                 string error = null;
-                scoreMap = TOAIExporter.LoadScoreMap(BarScoresFile, ref error);
+                scoreMap = TOAIExporter.LoadScoreMap(barScoresFile, ref error);
                 // threshold.txt (set once in the TOAI panel) overrides the property.
                 MinProbabilityThreshold = TOAIExporter.ReadThreshold(ThresholdFile, MinProbabilityThreshold);
             }
@@ -120,10 +128,10 @@ namespace NinjaTrader.NinjaScript.Indicators
             {
                 try
                 {
-                    if (System.IO.File.Exists(ScoreFile))
+                    if (System.IO.File.Exists(scoreFile))
                     {
                         double parsed;
-                        if (double.TryParse(System.IO.File.ReadAllText(ScoreFile).Trim(),
+                        if (double.TryParse(System.IO.File.ReadAllText(scoreFile).Trim(),
                                 System.Globalization.NumberStyles.Float,
                                 System.Globalization.CultureInfo.InvariantCulture, out parsed))
                             probOfTrue = parsed;

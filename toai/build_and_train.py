@@ -27,10 +27,25 @@ def _is_trades_export(path) -> bool:
             and _find_col(cols, "profit", exclude=("cum",)) is not None)
 
 
+def _export_instrument(path) -> str | None:
+    """Master instrument name from the export's Instrument column
+    ("ES JUN26" -> "ES") — routes the export to the right data folder."""
+    try:
+        df = pd.read_csv(path, nrows=1)
+    except Exception:
+        return None
+    col = _find_col(df.columns, "instrument")
+    if col is None or df.empty:
+        return None
+    value = str(df.iloc[0][col]).strip()
+    return value.split()[0] if value else None
+
+
 def find_trades_export(strategy_name: str | None = None):
-    """Newest trades-export CSV in the data dir, preferring files whose
-    name contains the selected strategy's name."""
-    candidates = [p for p in config.DATA_DIR.glob("*.csv")
+    """Newest trades-export CSV in the data ROOT (exports are always saved
+    there; the Instrument column routes them to the per-instrument folder),
+    preferring files whose name contains the selected strategy's name."""
+    candidates = [p for p in config.DATA_ROOT.glob("*.csv")
                   if p.name not in _OWN_FILES and _is_trades_export(p)]
     if not candidates:
         return None
@@ -49,12 +64,19 @@ def build_and_train(strategy_name: str | None = None):
 
     trades_file = find_trades_export(strategy_name)
     if trades_file is None:
-        print(f"\nNo trades export found in {config.DATA_DIR}")
+        print(f"\nNo trades export found in {config.DATA_ROOT}")
         print("\nIn NinjaTrader:")
         print("  Strategy Analyzer -> run the backtest -> Trades tab")
         print("  -> right-click -> Export... -> save with any name (the")
-        print(f"  strategy's name is best) into: {config.DATA_DIR}")
+        print(f"  strategy's name is best) into: {config.DATA_ROOT}")
         return False
+
+    # Each instrument trains in its own folder (multi-chart support).
+    instrument = _export_instrument(trades_file)
+    if instrument:
+        config.set_instrument(instrument)
+        config.DATA_DIR.mkdir(parents=True, exist_ok=True)
+        print(f"\nInstrument: {instrument}  ->  {config.DATA_DIR}")
 
     if not config.BAR_DATA_FILE.exists():
         print(f"\nMissing bar data: {config.BAR_DATA_FILE}")

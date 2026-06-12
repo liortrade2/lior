@@ -48,32 +48,45 @@ def _newest_export():
         return (None, 0.0)
 
 
+def _watch_targets():
+    """Instrument folders to poll. The root itself is included as long as a
+    legacy current_features.csv lives there (exporter from before the
+    multi-instrument layout)."""
+    targets = []
+    if (config.DATA_ROOT / "current_features.csv").exists():
+        targets.append(None)
+    targets.extend(config.list_instruments())
+    return targets
+
+
 def watch(interval_seconds: float = 2.0):
-    """Poll current_features.csv and refresh score.txt whenever it changes.
+    """Poll every instrument's current_features.csv and refresh its
+    score.txt whenever it changes — one watch window serves all charts
+    (C:\\LIOR_ML\\ES, C:\\LIOR_ML\\NQ, ...).
 
     Also watches for NEW Strategy Analyzer exports dropped into the data
-    dir: saving an export retrains the model automatically — no extra
-    clicks, and old exports don't need to be deleted (newest wins).
+    ROOT: saving an export retrains the right instrument automatically —
+    no extra clicks, and old exports don't need to be deleted (newest wins).
     """
-    bundle = load_model()
-
     # Refresh bar_scores.csv on startup so a chart (re)load shows scores
-    # retroactively and in Playback. Skipped quietly if bar data is missing.
-    try:
-        from .score_history import score_history
-        score_history()
-    except FileNotFoundError:
-        print(f"(no {config.BAR_DATA_FILE.name} yet — historical scores skipped)")
+    # retroactively and in Playback. Skipped quietly where data is missing.
+    from .score_history import score_history
+    for name in _watch_targets():
+        config.set_instrument(name)
+        try:
+            score_history()
+        except FileNotFoundError:
+            pass
 
     # Exports that already exist don't retrigger training — only new ones.
     _, last_export_mtime = _newest_export()
 
-    print(f"Watching {config.CURRENT_FEATURES_FILE} (Ctrl+C to stop)")
+    print(f"Watching {config.DATA_ROOT} — one folder per instrument (Ctrl+C to stop)")
     print(f"Threshold: {config.get_threshold()} — trades below are skipped "
-          f"(from {config.THRESHOLD_FILE.name})")
+          f"(from {config.THRESHOLD_FILE.name}, shared by all instruments)")
     print(f"Auto-retrain: save a new Strategy Analyzer export into "
-          f"{config.DATA_DIR} and the model retrains by itself.")
-    last_mtime = 0.0
+          f"{config.DATA_ROOT} and the right instrument retrains by itself.")
+    bundles, feat_mtimes, missing_model = {}, {}, set()
     while True:
         # New backtest export? Retrain automatically (after a short grace
         # period so we never read a file NinjaTrader is still writing).
@@ -86,24 +99,37 @@ def watch(interval_seconds: float = 2.0):
             try:
                 from .build_and_train import build_and_train
                 if build_and_train():
-                    bundle = load_model()
+                    bundles.clear()        # reload models lazily below
+                    missing_model.clear()
                     print("-" * 46)
                     print("Model reloaded — live scores now use the NEW model.")
                     print("Reload the chart to refresh the historical labels.\n")
             except Exception as e:
                 print(f"Auto-retrain failed: {e}\n")
 
-        try:
-            mtime = config.CURRENT_FEATURES_FILE.stat().st_mtime
-        except FileNotFoundError:
-            time.sleep(interval_seconds)
-            continue
-        if mtime != last_mtime:
-            last_mtime = mtime
-            score = score_latest_bar(bundle)
+        for name in _watch_targets():
+            config.set_instrument(name)
+            try:
+                mtime = config.CURRENT_FEATURES_FILE.stat().st_mtime
+            except FileNotFoundError:
+                continue
+            if mtime == feat_mtimes.get(name):
+                continue
+            feat_mtimes[name] = mtime
+            if name not in bundles:
+                try:
+                    bundles[name] = load_model()
+                except FileNotFoundError:
+                    if name not in missing_model:
+                        missing_model.add(name)
+                        print(f"[{name or 'root'}] no model.pkl yet — save a "
+                              "Strategy Analyzer export to train it.")
+                    continue
+            score = score_latest_bar(bundles[name])
             # Re-read each time so a threshold change in the panel applies
             # immediately, without restarting the watch.
             threshold = config.get_threshold()
             verdict = "ALLOW" if score >= threshold else "SKIP"
-            print(f"ProbOfTrue: {score:5.1f}  ->  {verdict}  (min {threshold:g})")
+            label = f"[{name}] " if name else ""
+            print(f"{label}ProbOfTrue: {score:5.1f}  ->  {verdict}  (min {threshold:g})")
         time.sleep(interval_seconds)
