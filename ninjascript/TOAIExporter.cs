@@ -57,6 +57,11 @@ namespace NinjaTrader.NinjaScript.Indicators
         private System.Text.StringBuilder histBuffer;
         private string ioError;
 
+        // Bars already present in bar_data.csv. Without this, every chart
+        // reload re-appends the full history and the file grows with
+        // duplicates (Python dedups on read, but the file balloons).
+        private System.Collections.Generic.HashSet<DateTime> exportedStamps;
+
         // Precomputed per-bar scores (bar_scores.csv, written by Python's
         // score_history) — lets the chart show scores retroactively on
         // historical bars and during Playback / Market Replay.
@@ -89,6 +94,7 @@ namespace NinjaTrader.NinjaScript.Indicators
                         ArchiveBarDataOnTimeframeChange();
                         if (!System.IO.File.Exists(BarDataFile))
                             System.IO.File.WriteAllText(BarDataFile, "DateTime," + Header + Environment.NewLine);
+                        exportedStamps = LoadExportedStamps(BarDataFile, ref ioError);
                     }
                 }
                 catch (Exception ex) { ioError = ex.Message; }
@@ -175,6 +181,32 @@ namespace NinjaTrader.NinjaScript.Indicators
             return map;
         }
 
+        // Timestamps of bars already in bar_data.csv (first column of each
+        // row) — used to skip re-exporting bars on chart reloads.
+        private static System.Collections.Generic.HashSet<DateTime>
+            LoadExportedStamps(string path, ref string error)
+        {
+            var set = new System.Collections.Generic.HashSet<DateTime>();
+            try
+            {
+                if (!System.IO.File.Exists(path))
+                    return set;
+                foreach (string row in System.IO.File.ReadLines(path))
+                {
+                    int comma = row.IndexOf(',');
+                    if (comma <= 0) continue;
+                    DateTime t;
+                    if (DateTime.TryParseExact(row.Substring(0, comma),
+                            "yyyy-MM-dd HH:mm:ss",
+                            System.Globalization.CultureInfo.InvariantCulture,
+                            System.Globalization.DateTimeStyles.None, out t))
+                        set.Add(t);
+                }
+            }
+            catch (Exception ex) { error = ex.Message; }
+            return set;
+        }
+
         private void FlushHistoryBuffer()
         {
             if (histBuffer == null || histBuffer.Length == 0) return;
@@ -219,7 +251,9 @@ namespace NinjaTrader.NinjaScript.Indicators
             // show what WOULD have been skipped.
             if (State == State.Historical)
             {
-                if (ExportBarData)
+                // HashSet.Add returns false when the bar is already in the
+                // file — that's what keeps reloads from duplicating history.
+                if (ExportBarData && exportedStamps != null && exportedStamps.Add(Time[0]))
                     histBuffer.Append(stamped);
                 double histScore;
                 if (scoreMap != null && scoreMap.TryGetValue(Time[0], out histScore))
@@ -236,7 +270,7 @@ namespace NinjaTrader.NinjaScript.Indicators
             // Live bars are appended one by one (the buffer was already flushed).
             try
             {
-                if (ExportBarData)
+                if (ExportBarData && (exportedStamps == null || exportedStamps.Add(Time[0])))
                     System.IO.File.AppendAllText(BarDataFile, stamped);
 
                 // Real-time bridge: only meaningful when Python watch mode is running.

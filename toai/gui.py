@@ -12,6 +12,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 from . import config
+from .features import MODEL_FEATURES
 
 
 class ToaiPanel(tk.Tk):
@@ -25,7 +26,7 @@ class ToaiPanel(tk.Tk):
         self.strategy = tk.StringVar()
         self.pmv_text = tk.StringVar(value="PMV:  —")
         self.threshold = tk.StringVar(value=f"{config.get_threshold():g}")
-        self.feature_vars = {f: tk.BooleanVar(value=True) for f in config.FEATURES}
+        self.feature_vars = {f: tk.BooleanVar(value=True) for f in MODEL_FEATURES}
         self._bundle = None  # set after training
 
         self._build_layout()

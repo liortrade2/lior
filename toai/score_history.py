@@ -7,20 +7,44 @@ bars and during Playback (Market Replay) — not only on live bars.
 Re-run after every training (build_and_train does it automatically) and
 whenever the chart exported new history into bar_data.csv.
 """
+import os
+import time
+
 import pandas as pd
 
 from . import config
+from .features import derive_features
 from .score import load_model
+
+
+def _compact_bar_data(deduped: pd.DataFrame, raw_rows: int):
+    """Rewrite bar_data.csv without the duplicate rows that chart reloads
+    append. Skipped while NinjaTrader might still be writing the file."""
+    try:
+        if time.time() - config.BAR_DATA_FILE.stat().st_mtime < 60:
+            return
+        tmp = config.BAR_DATA_FILE.with_suffix(".tmp")
+        deduped.to_csv(tmp, index=False)
+        os.replace(tmp, config.BAR_DATA_FILE)
+        print(f"Compacted {config.BAR_DATA_FILE.name}: "
+              f"{raw_rows} -> {len(deduped)} rows")
+    except OSError:
+        pass
 
 
 def score_history(verbose: bool = True) -> pd.DataFrame:
     bundle = load_model()
     df = pd.read_csv(config.BAR_DATA_FILE)
+    raw_rows = len(df)
 
     # The chart re-exports its history on every load, so bar_data.csv
     # accumulates duplicate rows — keep the newest row per bar.
-    df = df.drop_duplicates(subset="DateTime", keep="last")
-    df = df.dropna(subset=bundle["features"]).sort_values("DateTime")
+    df = df.drop_duplicates(subset="DateTime", keep="last").sort_values("DateTime")
+    if len(df) < raw_rows:
+        _compact_bar_data(df, raw_rows)
+
+    df = derive_features(df)
+    df = df.dropna(subset=bundle["features"])
 
     X = bundle["scaler"].transform(df[bundle["features"]])
     probs = bundle["model"].predict_proba(X)[:, 1] * 100

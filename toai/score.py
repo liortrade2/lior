@@ -9,6 +9,7 @@ import joblib
 import pandas as pd
 
 from . import config
+from .features import derive_features
 
 
 def load_model(path=None):
@@ -18,6 +19,9 @@ def load_model(path=None):
 
 def score_features(bundle, features_row: pd.DataFrame) -> float:
     """Return ProbOfTrue as a 0-100 score for a single-row DataFrame."""
+    # The exporter writes raw columns; the model expects the derived,
+    # scale-free features (raw columns are kept, so old bundles work too).
+    features_row = derive_features(features_row)
     X = features_row[bundle["features"]]
     X_scaled = bundle["scaler"].transform(X)
     prob = bundle["model"].predict_proba(X_scaled)[0][1]

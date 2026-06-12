@@ -12,6 +12,7 @@ from sklearn.model_selection import GridSearchCV, train_test_split
 from sklearn.preprocessing import StandardScaler
 
 from . import config
+from .features import MODEL_FEATURES, derive_features
 
 PARAM_GRID = {
     "n_estimators": [100, 200],
@@ -22,18 +23,23 @@ PARAM_GRID = {
 
 def load_training_data(path=None, features=None) -> pd.DataFrame:
     path = path or config.TRAINING_FILE
-    features = features or config.FEATURES
+    features = features or MODEL_FEATURES
     df = pd.read_csv(path)
-    missing = [c for c in features + [config.TARGET_COLUMN] if c not in df.columns]
+    # The file holds the RAW exporter columns; the model features are
+    # derived from them (relative/scale-free — see features.py).
+    missing = [c for c in config.FEATURES + [config.TARGET_COLUMN] if c not in df.columns]
     if missing:
         raise ValueError(f"Training file {path} is missing columns: {missing}")
+    df = derive_features(df)
     return df.dropna(subset=features + [config.TARGET_COLUMN])
 
 
 def train(df: pd.DataFrame | None = None, features=None, verbose: bool = True):
-    features = features or config.FEATURES
+    features = features or MODEL_FEATURES
     if df is None:
         df = load_training_data(features=features)
+    if any(f not in df.columns for f in features):
+        df = derive_features(df).dropna(subset=features + [config.TARGET_COLUMN])
 
     X = df[features]
     y = (df[config.TARGET_COLUMN] > 0).astype(int)
@@ -116,7 +122,7 @@ def walk_forward(df, features=None, n_folds=4):
     out-of-fold predictions (empty when there is too little data).
     """
     import numpy as np
-    features = features or config.FEATURES
+    features = features or MODEL_FEATURES
     empty = ([], np.array([]), np.array([]))
     if len(df) < 150:
         return empty
