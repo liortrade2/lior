@@ -77,8 +77,14 @@ def build_and_train(strategy_name: str | None = None):
     print("-" * 46)
     train()
 
+    # Retroactive display: score every bar in bar_data.csv so the chart
+    # shows labels on historical bars and in Playback.
+    from .score_history import score_history
+    print()
+    score_history()
+
     print("\nDone. Restart the watch window (TOAI_Watch.bat) so it picks")
-    print("up the new model, then check the scores on the chart.")
+    print("up the new model, then RELOAD the chart to see historical scores.")
     return True
 
 

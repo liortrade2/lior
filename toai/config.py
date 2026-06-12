@@ -21,6 +21,7 @@ TRADE_LOG_FILE = DATA_DIR / "trade_log.csv"
 CURRENT_FEATURES_FILE = DATA_DIR / "current_features.csv"
 MODEL_FILE = DATA_DIR / "model.pkl"
 SCORE_FILE = DATA_DIR / "score.txt"
+BAR_SCORES_FILE = DATA_DIR / "bar_scores.csv"
 
 # The 11 features from the LIOR Quant System build map.
 # Names must match the CSV header written by the NinjaScript Exporter.

@@ -30,6 +30,7 @@ namespace NinjaTrader.NinjaScript.Indicators
         private const string FeaturesFile = DataDir + @"\current_features.csv";
         private const string BarDataFile = DataDir + @"\bar_data.csv";
         private const string ScoreFile = DataDir + @"\score.txt";
+        private const string BarScoresFile = DataDir + @"\bar_scores.csv";
         private const string Header =
             "ATR20,EMA9,EMA20,EMA50,RSI14,ADX14,Distance_SwingHigh,Distance_SwingLow,Volume_Ratio,BBand_Width,ZScore";
 
@@ -50,6 +51,11 @@ namespace NinjaTrader.NinjaScript.Indicators
         // file-lock collisions with Python reading bar_data.csv.
         private System.Text.StringBuilder histBuffer;
         private string ioError;
+
+        // Precomputed per-bar scores (bar_scores.csv, written by Python's
+        // score_history) — lets the chart show scores retroactively on
+        // historical bars and during Playback / Market Replay.
+        private System.Collections.Generic.Dictionary<DateTime, double> scoreMap;
 
         protected override void OnStateChange()
         {
@@ -77,11 +83,41 @@ namespace NinjaTrader.NinjaScript.Indicators
                         System.IO.File.WriteAllText(BarDataFile, "DateTime," + Header + Environment.NewLine);
                 }
                 catch (Exception ex) { ioError = ex.Message; }
+                scoreMap = LoadScoreMap(BarScoresFile, ref ioError);
             }
             else if (State == State.Realtime || State == State.Terminated)
             {
                 FlushHistoryBuffer();
             }
+        }
+
+        // Shared with TOAISignalLabel: bar_scores.csv is "DateTime,Score"
+        // rows ("yyyy-MM-dd HH:mm:ss", score 0-100), one per chart bar.
+        internal static System.Collections.Generic.Dictionary<DateTime, double>
+            LoadScoreMap(string path, ref string error)
+        {
+            var map = new System.Collections.Generic.Dictionary<DateTime, double>();
+            try
+            {
+                if (!System.IO.File.Exists(path))
+                    return map;
+                foreach (string row in System.IO.File.ReadAllLines(path))
+                {
+                    string[] parts = row.Split(',');
+                    if (parts.Length < 2) continue;
+                    DateTime t;
+                    double s;
+                    if (DateTime.TryParseExact(parts[0], "yyyy-MM-dd HH:mm:ss",
+                            System.Globalization.CultureInfo.InvariantCulture,
+                            System.Globalization.DateTimeStyles.None, out t)
+                        && double.TryParse(parts[1],
+                            System.Globalization.NumberStyles.Float,
+                            System.Globalization.CultureInfo.InvariantCulture, out s))
+                        map[t] = s;
+                }
+            }
+            catch (Exception ex) { error = ex.Message; }
+            return map;
         }
 
         private void FlushHistoryBuffer()
@@ -121,15 +157,18 @@ namespace NinjaTrader.NinjaScript.Indicators
 
             string stamped = Time[0].ToString("yyyy-MM-dd HH:mm:ss") + "," + line + Environment.NewLine;
 
-            // Historical bars have no live score — the Python watch loop only
-            // runs in real time, so score.txt holds a single stale value that
-            // would otherwise be applied to the whole history and erase every
-            // past BloodHound signal. Pass-through (MLPass = 1) keeps the
-            // historical signals intact; the ML gate only acts on live bars.
+            // Historical bars: the score comes from bar_scores.csv (written by
+            // Python's score_history) so ProbOfTrue plots retroactively. The
+            // gate stays pass-through (MLPass = 1) on history so BloodHound's
+            // past signals are never erased — the labels (TOAISignalLabel)
+            // show what WOULD have been skipped.
             if (State == State.Historical)
             {
                 if (ExportBarData)
                     histBuffer.Append(stamped);
+                double histScore;
+                if (scoreMap != null && scoreMap.TryGetValue(Time[0], out histScore))
+                    Values[0][0] = histScore;
                 Values[1][0] = 1;
                 return;
             }
@@ -145,35 +184,47 @@ namespace NinjaTrader.NinjaScript.Indicators
             }
             catch (Exception ex) { ioError = ex.Message; }
 
-            // Read back the score written by: python main.py -> option 4 (watch mode)
+            // Score resolution: precomputed bar_scores.csv first (covers
+            // Playback / Market Replay, where the "live" bars are past bars
+            // already scored by Python), then score.txt from the live watch.
             MlFilterPassed = false;
             double probOfTrue = double.NaN;
             string debugMsg = "";
-            try
+            double mapped;
+            if (scoreMap != null && scoreMap.TryGetValue(Time[0], out mapped))
             {
-                if (System.IO.File.Exists(ScoreFile))
+                probOfTrue = mapped;
+                debugMsg = "SCORE_OK";
+            }
+            else
+            {
+                try
                 {
-                    string scoreContent = System.IO.File.ReadAllText(ScoreFile).Trim();
-                    double parsed;
-                    if (double.TryParse(scoreContent,
-                            System.Globalization.NumberStyles.Float,
-                            System.Globalization.CultureInfo.InvariantCulture, out parsed))
+                    if (System.IO.File.Exists(ScoreFile))
                     {
-                        probOfTrue = parsed;
-                        MlFilterPassed = probOfTrue >= MinProbabilityThreshold;
-                        debugMsg = "SCORE_OK";
+                        string scoreContent = System.IO.File.ReadAllText(ScoreFile).Trim();
+                        double parsed;
+                        if (double.TryParse(scoreContent,
+                                System.Globalization.NumberStyles.Float,
+                                System.Globalization.CultureInfo.InvariantCulture, out parsed))
+                        {
+                            probOfTrue = parsed;
+                            debugMsg = "SCORE_OK";
+                        }
+                        else
+                        {
+                            debugMsg = "PARSE_FAIL:" + scoreContent;
+                        }
                     }
                     else
                     {
-                        debugMsg = "PARSE_FAIL:" + scoreContent;
+                        debugMsg = "NO_FILE";
                     }
                 }
-                else
-                {
-                    debugMsg = "NO_FILE";
-                }
+                catch (Exception ex) { ioError = ex.Message; debugMsg = "EXCEPTION"; }
             }
-            catch (Exception ex) { ioError = ex.Message; debugMsg = "EXCEPTION"; }
+            if (!double.IsNaN(probOfTrue))
+                MlFilterPassed = probOfTrue >= MinProbabilityThreshold;
 
             if (ioError != null)
             {

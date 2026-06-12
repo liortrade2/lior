@@ -1,6 +1,11 @@
 // TOAISignalLabel — draws the ML score label ONLY on bars where the
 // BloodHound entry signal fired (the green stripe), instead of on every bar.
 //
+// Works on historical bars and in Playback too: per-bar scores are read
+// from C:\LIOR_ML\bar_scores.csv (written by Python: main.py -> option 7,
+// or automatically when training / starting the watch). Live bars not yet
+// in that file fall back to score.txt.
+//
 // Setup on the chart:
 //   1. Add this indicator to the PRICE panel.
 //   2. In its properties, set "Input series" to the BloodHound signal plot
@@ -33,6 +38,11 @@ namespace NinjaTrader.NinjaScript.Indicators
     public class TOAISignalLabel : Indicator
     {
         private const string ScoreFile = @"C:\LIOR_ML\score.txt";
+        private const string BarScoresFile = @"C:\LIOR_ML\bar_scores.csv";
+
+        // Precomputed per-bar scores — labels work retroactively on
+        // historical bars and in Playback, not only live.
+        private System.Collections.Generic.Dictionary<DateTime, double> scoreMap;
 
         [NinjaScriptProperty]
         public double MinProbabilityThreshold { get; set; } = 55.0;
@@ -48,32 +58,42 @@ namespace NinjaTrader.NinjaScript.Indicators
                 DisplayInDataBox = false;
                 PaintPriceMarkers = false;
             }
+            else if (State == State.DataLoaded)
+            {
+                string error = null;
+                scoreMap = TOAIExporter.LoadScoreMap(BarScoresFile, ref error);
+            }
         }
 
         protected override void OnBarUpdate()
         {
-            // score.txt only holds a live value — no honest score exists for
-            // historical bars, so labels are live-only (same rule as the gate).
-            if (State == State.Historical)
-                return;
-
             // Input is the BloodHound signal plot: 0 = no signal on this bar.
             if (double.IsNaN(Input[0]) || Math.Abs(Input[0]) < 0.5)
                 return;
 
+            // Precomputed score first (history + Playback); for a true live
+            // bar that is not in bar_scores.csv yet, fall back to score.txt.
             double probOfTrue = double.NaN;
-            try
+            double mapped;
+            if (scoreMap != null && scoreMap.TryGetValue(Time[0], out mapped))
             {
-                if (System.IO.File.Exists(ScoreFile))
-                {
-                    double parsed;
-                    if (double.TryParse(System.IO.File.ReadAllText(ScoreFile).Trim(),
-                            System.Globalization.NumberStyles.Float,
-                            System.Globalization.CultureInfo.InvariantCulture, out parsed))
-                        probOfTrue = parsed;
-                }
+                probOfTrue = mapped;
             }
-            catch { }
+            else if (State != State.Historical)
+            {
+                try
+                {
+                    if (System.IO.File.Exists(ScoreFile))
+                    {
+                        double parsed;
+                        if (double.TryParse(System.IO.File.ReadAllText(ScoreFile).Trim(),
+                                System.Globalization.NumberStyles.Float,
+                                System.Globalization.CultureInfo.InvariantCulture, out parsed))
+                            probOfTrue = parsed;
+                    }
+                }
+                catch { }
+            }
 
             if (double.IsNaN(probOfTrue))
                 return;

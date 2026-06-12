@@ -20,14 +20,15 @@ MENU = """
   4. Watch mode (real-time scoring loop for NinjaTrader)
   5. Open control panel (GUI — like the TradeOptima app)
   6. Build training file from backtest (trades export + bar_data.csv)
-  7. Exit
+  7. Score history (bar_scores.csv — retroactive + Playback display)
+  8. Exit
 """
 
 
 def main():
     while True:
         print(MENU.format(data_dir=config.DATA_DIR))
-        choice = input("Select option [1-7]: ").strip()
+        choice = input("Select option [1-8]: ").strip()
 
         if choice == "1":
             from toai.simulate import write_sample_files
@@ -79,6 +80,14 @@ def main():
                 print(f"Error: {e}")
 
         elif choice == "7":
+            from toai.score_history import score_history
+            try:
+                score_history()
+            except FileNotFoundError as e:
+                print(f"Missing file: {e.filename}. Need a trained model (option 2)")
+                print("and bar_data.csv (chart with TOAIExporter, ExportBarData=true).")
+
+        elif choice == "8":
             sys.exit(0)
 
         else:

@@ -37,6 +37,15 @@ def score_latest_bar(bundle=None) -> float:
 def watch(interval_seconds: float = 2.0):
     """Poll current_features.csv and refresh score.txt whenever it changes."""
     bundle = load_model()
+
+    # Refresh bar_scores.csv on startup so a chart (re)load shows scores
+    # retroactively and in Playback. Skipped quietly if bar data is missing.
+    try:
+        from .score_history import score_history
+        score_history()
+    except FileNotFoundError:
+        print(f"(no {config.BAR_DATA_FILE.name} yet — historical scores skipped)")
+
     print(f"Watching {config.CURRENT_FEATURES_FILE} (Ctrl+C to stop)")
     print(f"Threshold: {config.MIN_PROBABILITY_THRESHOLD} — trades below are skipped")
     last_mtime = 0.0
