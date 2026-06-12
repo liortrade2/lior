@@ -31,9 +31,14 @@ namespace NinjaTrader.NinjaScript.Indicators
         private const string BarDataFile = DataDir + @"\bar_data.csv";
         private const string ScoreFile = DataDir + @"\score.txt";
         private const string BarScoresFile = DataDir + @"\bar_scores.csv";
+        private const string ThresholdFile = DataDir + @"\threshold.txt";
         private const string Header =
             "ATR20,EMA9,EMA20,EMA50,RSI14,ADX14,Distance_SwingHigh,Distance_SwingLow,Volume_Ratio,BBand_Width,ZScore";
 
+        // Fallback only — when C:\LIOR_ML\threshold.txt exists (written by
+        // the TOAI panel's "Set Threshold" button) it OVERRIDES this property
+        // everywhere: on the chart AND inside BloodHound's copy of the
+        // indicator. One file, one threshold.
         [NinjaScriptProperty]
         public double MinProbabilityThreshold { get; set; } = 55.0;
 
@@ -84,11 +89,33 @@ namespace NinjaTrader.NinjaScript.Indicators
                 }
                 catch (Exception ex) { ioError = ex.Message; }
                 scoreMap = LoadScoreMap(BarScoresFile, ref ioError);
+                MinProbabilityThreshold = ReadThreshold(ThresholdFile, MinProbabilityThreshold);
+                Lines[0].Value = MinProbabilityThreshold;
             }
             else if (State == State.Realtime || State == State.Terminated)
             {
                 FlushHistoryBuffer();
             }
+        }
+
+        // Shared with TOAISignalLabel: the single-source-of-truth threshold.
+        // Returns the fallback when the file is missing or unreadable.
+        internal static double ReadThreshold(string path, double fallback)
+        {
+            try
+            {
+                if (System.IO.File.Exists(path))
+                {
+                    double t;
+                    if (double.TryParse(System.IO.File.ReadAllText(path).Trim(),
+                            System.Globalization.NumberStyles.Float,
+                            System.Globalization.CultureInfo.InvariantCulture, out t)
+                        && t >= 0 && t <= 100)
+                        return t;
+                }
+            }
+            catch { }
+            return fallback;
         }
 
         // Shared with TOAISignalLabel: bar_scores.csv is "DateTime,Score"
@@ -172,6 +199,11 @@ namespace NinjaTrader.NinjaScript.Indicators
                 Values[1][0] = 1;
                 return;
             }
+
+            // Live: re-read the shared threshold each bar so a change in the
+            // TOAI panel applies without reloading the chart.
+            MinProbabilityThreshold = ReadThreshold(ThresholdFile, MinProbabilityThreshold);
+            Lines[0].Value = MinProbabilityThreshold;
 
             // Live bars are appended one by one (the buffer was already flushed).
             try

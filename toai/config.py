@@ -22,6 +22,7 @@ CURRENT_FEATURES_FILE = DATA_DIR / "current_features.csv"
 MODEL_FILE = DATA_DIR / "model.pkl"
 SCORE_FILE = DATA_DIR / "score.txt"
 BAR_SCORES_FILE = DATA_DIR / "bar_scores.csv"
+THRESHOLD_FILE = DATA_DIR / "threshold.txt"
 
 # The 11 features from the LIOR Quant System build map.
 # Names must match the CSV header written by the NinjaScript Exporter.
@@ -42,8 +43,35 @@ FEATURES = [
 TARGET_COLUMN = "PnL"       # target = PnL > 0
 
 # Probability of Win Minimum — trades scoring below this are skipped.
-# Build map: start at 55, tune from results.
-MIN_PROBABILITY_THRESHOLD = 55.0
+#
+# Single source of truth: threshold.txt in the data dir. The GUI panel
+# writes it, and EVERY consumer reads it — the Python watch, TOAIExporter
+# on the chart, TOAISignalLabel, and BloodHound's internal copy of
+# TOAIExporter. Change it in ONE place (the panel) and all stay in sync.
+DEFAULT_THRESHOLD = 55.0
+
+
+def get_threshold() -> float:
+    """Current threshold from threshold.txt (DEFAULT_THRESHOLD if missing)."""
+    try:
+        return float(THRESHOLD_FILE.read_text().strip())
+    except (FileNotFoundError, ValueError, OSError):
+        return DEFAULT_THRESHOLD
+
+
+def set_threshold(value: float) -> float:
+    """Write the threshold everyone reads. Returns the stored value."""
+    value = float(value)
+    if not 0 <= value <= 100:
+        raise ValueError("Threshold must be between 0 and 100.")
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    THRESHOLD_FILE.write_text(f"{value:g}")
+    global MIN_PROBABILITY_THRESHOLD
+    MIN_PROBABILITY_THRESHOLD = value
+    return value
+
+
+MIN_PROBABILITY_THRESHOLD = get_threshold()
 
 TEST_SIZE = 0.3
 RANDOM_STATE = 42

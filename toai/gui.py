@@ -24,6 +24,7 @@ class ToaiPanel(tk.Tk):
         self.training_file = tk.StringVar(value=str(config.TRAINING_FILE))
         self.strategy = tk.StringVar()
         self.pmv_text = tk.StringVar(value="PMV:  —")
+        self.threshold = tk.StringVar(value=f"{config.get_threshold():g}")
         self.feature_vars = {f: tk.BooleanVar(value=True) for f in config.FEATURES}
         self._bundle = None  # set after training
 
@@ -86,9 +87,22 @@ class ToaiPanel(tk.Tk):
         self.log = tk.Text(logf, height=10, state=tk.DISABLED, wrap="word")
         self.log.grid(row=0, column=0, sticky="nsew")
 
+        # Threshold — the ONE place it is set. Written to threshold.txt,
+        # which the watch, TOAIExporter, TOAISignalLabel and BloodHound's
+        # internal TOAIExporter copy all read.
+        thresh = ttk.LabelFrame(root, text="Passing score (threshold) — updates ALL components", padding=8)
+        thresh.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(8, 0))
+        ttk.Label(thresh, text="Min Probability of Win:").pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Entry(thresh, textvariable=self.threshold, width=6).pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Button(thresh, text="Set Threshold", command=self._set_threshold).pack(side=tk.LEFT, padx=(0, 10))
+        self.threshold_label = ttk.Label(
+            thresh, text=f"current: {config.get_threshold():g}  ({config.THRESHOLD_FILE})",
+            foreground="gray")
+        self.threshold_label.pack(side=tk.LEFT)
+
         # Bottom: action buttons + PMV display
         bottom = ttk.Frame(root)
-        bottom.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(10, 0))
+        bottom.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(10, 0))
         self.calc_btn = ttk.Button(bottom, text="Calculate Decision Boundary",
                                    command=self._calculate)
         self.calc_btn.pack(side=tk.LEFT, padx=(0, 6))
@@ -105,6 +119,18 @@ class ToaiPanel(tk.Tk):
         self.log.insert(tk.END, msg + "\n")
         self.log.see(tk.END)
         self.log.configure(state=tk.DISABLED)
+
+    def _set_threshold(self):
+        try:
+            value = config.set_threshold(float(self.threshold.get()))
+        except ValueError:
+            messagebox.showwarning("TOAI", "Threshold must be a number between 0 and 100.")
+            return
+        self.threshold_label.configure(
+            text=f"current: {value:g}  ({config.THRESHOLD_FILE})")
+        self._log(f"Threshold set to {value:g} — written to {config.THRESHOLD_FILE.name}.")
+        self._log("Applies everywhere: watch (immediately), chart indicators and")
+        self._log("BloodHound's gate on the next bar / chart reload.")
 
     def _set_all(self, value: bool):
         for var in self.feature_vars.values():

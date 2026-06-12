@@ -54,16 +54,21 @@ Baseline (no filter): 53.8%
 **כלל הבחירה:** הסף שבו ה-win rate המסונן גבוה משמעותית מה-baseline,
 אבל עדיין נשארות מספיק עסקאות (2-5 ביום). מתחילים ב-55 ומכווננים.
 
-## איפה מגדירים את הסף? (יש 3 מקומות!)
+## איפה מגדירים את הסף? (מקום אחד!)
 
-| מקום | מה הוא שולט | איך משנים |
-|---|---|---|
-| **BloodHound** — Select Indicator → `TOAIExporter(true,55)` → `MinProbabilityThreshold` | **ה-gate האמיתי!** BloodHound מריץ עותק נפרד של האינדיקטור עם הפרמטרים האלה | בתוך ה-Logic Editor, לחיצה על שורת האינדיקטור |
-| **NinjaTrader** — TOAIExporter על הצ'ארט → `MinProbabilityThreshold` | רק התצוגה (באנר + תוויות + פאנל) | בחלון ה-Indicators על הצ'ארט |
-| **Python** — `toai/config.py` → `MIN_PROBABILITY_THRESHOLD` | התצוגה בחלון ה-Watch | עריכת הקובץ |
+**בפאנל TOAI** (python main.py → אופציה 5): שדה **"Min Probability of Win"**
+→ כפתור **Set Threshold**. זה כותב את `C:\LIOR_ML\threshold.txt` —
+וכל הרכיבים קוראים ממנו:
 
-**מלכודת נפוצה:** שינוי הסף על הצ'ארט **לא** משפיע על BloodHound — לו יש
-עותק נפרד עם הפרמטרים שמוגדרים ב-Select Indicator. תמיד לעדכן את שלושתם יחד.
+| רכיב | מתי קולט שינוי |
+|---|---|
+| חלון ה-Watch (Python) | מיידית (קורא בכל ציון) |
+| TOAIExporter על הצ'ארט | בבר החי הבא, או ב-Reload |
+| TOAISignalLabel | בבר החי הבא, או ב-Reload |
+| **העותק הפנימי של BloodHound** | בבר החי הבא, או ב-Reload — אותו קובץ! |
+
+ה-property `MinProbabilityThreshold` באינדיקטורים הוא **fallback בלבד** —
+כשהקובץ קיים הוא גובר על הכל. אין יותר צורך לסנכרן שלושה מקומות ידנית.
 
 ## התנהגות על היסטוריה + Playback
 

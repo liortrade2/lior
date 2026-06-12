@@ -47,7 +47,8 @@ def watch(interval_seconds: float = 2.0):
         print(f"(no {config.BAR_DATA_FILE.name} yet — historical scores skipped)")
 
     print(f"Watching {config.CURRENT_FEATURES_FILE} (Ctrl+C to stop)")
-    print(f"Threshold: {config.MIN_PROBABILITY_THRESHOLD} — trades below are skipped")
+    print(f"Threshold: {config.get_threshold()} — trades below are skipped "
+          f"(from {config.THRESHOLD_FILE.name})")
     last_mtime = 0.0
     while True:
         try:
@@ -58,6 +59,9 @@ def watch(interval_seconds: float = 2.0):
         if mtime != last_mtime:
             last_mtime = mtime
             score = score_latest_bar(bundle)
-            verdict = "ALLOW" if score >= config.MIN_PROBABILITY_THRESHOLD else "SKIP"
-            print(f"ProbOfTrue: {score:5.1f}  ->  {verdict}")
+            # Re-read each time so a threshold change in the panel applies
+            # immediately, without restarting the watch.
+            threshold = config.get_threshold()
+            verdict = "ALLOW" if score >= threshold else "SKIP"
+            print(f"ProbOfTrue: {score:5.1f}  ->  {verdict}  (min {threshold:g})")
         time.sleep(interval_seconds)

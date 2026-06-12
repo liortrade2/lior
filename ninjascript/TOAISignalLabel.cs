@@ -39,6 +39,7 @@ namespace NinjaTrader.NinjaScript.Indicators
     {
         private const string ScoreFile = @"C:\LIOR_ML\score.txt";
         private const string BarScoresFile = @"C:\LIOR_ML\bar_scores.csv";
+        private const string ThresholdFile = @"C:\LIOR_ML\threshold.txt";
 
         // Precomputed per-bar scores — labels work retroactively on
         // historical bars and in Playback, not only live.
@@ -62,6 +63,8 @@ namespace NinjaTrader.NinjaScript.Indicators
             {
                 string error = null;
                 scoreMap = TOAIExporter.LoadScoreMap(BarScoresFile, ref error);
+                // threshold.txt (set once in the TOAI panel) overrides the property.
+                MinProbabilityThreshold = TOAIExporter.ReadThreshold(ThresholdFile, MinProbabilityThreshold);
             }
         }
 
@@ -98,6 +101,8 @@ namespace NinjaTrader.NinjaScript.Indicators
             if (double.IsNaN(probOfTrue))
                 return;
 
+            if (State != State.Historical)
+                MinProbabilityThreshold = TOAIExporter.ReadThreshold(ThresholdFile, MinProbabilityThreshold);
             bool passed = probOfTrue >= MinProbabilityThreshold;
             string text = passed
                 ? string.Format("{0:F0}%", probOfTrue)
