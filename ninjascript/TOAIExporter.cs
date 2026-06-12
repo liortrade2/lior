@@ -84,8 +84,12 @@ namespace NinjaTrader.NinjaScript.Indicators
                 try
                 {
                     System.IO.Directory.CreateDirectory(DataDir);
-                    if (ExportBarData && !System.IO.File.Exists(BarDataFile))
-                        System.IO.File.WriteAllText(BarDataFile, "DateTime," + Header + Environment.NewLine);
+                    if (ExportBarData)
+                    {
+                        ArchiveBarDataOnTimeframeChange();
+                        if (!System.IO.File.Exists(BarDataFile))
+                            System.IO.File.WriteAllText(BarDataFile, "DateTime," + Header + Environment.NewLine);
+                    }
                 }
                 catch (Exception ex) { ioError = ex.Message; }
                 scoreMap = LoadScoreMap(BarScoresFile, ref ioError);
@@ -96,6 +100,30 @@ namespace NinjaTrader.NinjaScript.Indicators
             {
                 FlushHistoryBuffer();
             }
+        }
+
+        // Features depend on the bar size (ATR20 on 1-min bars != ATR20 on
+        // 15-min bars), so bar data from different timeframes must never mix.
+        // bar_data_tf.txt remembers which timeframe built the current
+        // bar_data.csv; when the chart's timeframe differs, the old file is
+        // archived (bar_data_<tf>_<stamp>.csv) and a fresh one starts. The
+        // stale bar_scores.csv is removed — the watch regenerates it.
+        private void ArchiveBarDataOnTimeframeChange()
+        {
+            string tf = BarsPeriod.BarsPeriodType + "-" + BarsPeriod.Value;
+            string metaPath = DataDir + @"\bar_data_tf.txt";
+            string prev = System.IO.File.Exists(metaPath)
+                ? System.IO.File.ReadAllText(metaPath).Trim() : null;
+            if (prev != null && prev != tf && System.IO.File.Exists(BarDataFile))
+            {
+                string archive = DataDir + @"\bar_data_" + prev + "_" +
+                    DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".csv";
+                System.IO.File.Move(BarDataFile, archive);
+                if (System.IO.File.Exists(BarScoresFile))
+                    System.IO.File.Delete(BarScoresFile);
+            }
+            if (prev != tf)
+                System.IO.File.WriteAllText(metaPath, tf);
         }
 
         // Shared with TOAISignalLabel: the single-source-of-truth threshold.
