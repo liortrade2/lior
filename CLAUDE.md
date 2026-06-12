@@ -1,5 +1,9 @@
 # TOAI — Trade Optimizer AI (Claude Code Instructions)
 
+## 📌 ממשיכים שיחה קודמת?
+קרא קודם את `docs/PROJECT_STATUS.md` — מצב הפרויקט, מה עובד, ומה הצעד הבא.
+בסוף כל session משמעותי: עדכן את הקובץ הזה כדי שהשיחה הבאה תמשיך משם.
+
 ## 🎯 מה הפרויקט הזה
 מערכת Python מקומית שמחקה את TradeOptima.AI — מסנן עסקאות חכם ל-NinjaTrader/BlackBird
 באמצעות Machine Learning (Gradient Boosting) שמחשב PMV Score (0-100) לכל עסקה.
