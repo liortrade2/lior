@@ -129,13 +129,6 @@ namespace NinjaTrader.NinjaScript.Indicators
             }
             else if (State != State.Historical)
             {
-                // Outside the strategy's entry window there is no valid
-                // prediction — no badge, rather than the unrelated live score.
-                // (Historical bars need no check: bar_scores.csv only contains
-                // in-window bars, so out-of-window signals simply find no score.)
-                double barMinute = Time[0].Hour * 60 + Time[0].Minute;
-                if (windowLo >= 0 && (barMinute < windowLo || barMinute > windowHi))
-                    return;
                 try
                 {
                     if (System.IO.File.Exists(scoreFile))
@@ -157,11 +150,19 @@ namespace NinjaTrader.NinjaScript.Indicators
                 MinProbabilityThreshold = TOAIExporter.ReadThreshold(ThresholdFile, MinProbabilityThreshold);
             bool passed = probOfTrue >= MinProbabilityThreshold;
 
+            // Outside the strategy's entry window the model never saw a
+            // trade — the score is shown but in GRAY: information, not a
+            // tradeable prediction (the gate is closed there anyway).
+            bool inWindow = windowLo < 0 ||
+                (TOAIExporter.SessionMinutes(Time[0]) >= windowLo &&
+                 TOAIExporter.SessionMinutes(Time[0]) <= windowHi);
+
             // TradeOptima look: vertical band over the signal bar, and the
-            // score as a badge INSIDE the candle (white text on green/red).
-            // Bars.GetHigh/GetLow = the real prices of the chart bar
-            // (Input[0] here is the signal value, so High[0] would be wrong).
-            if (ShowSignalBand)
+            // score as a badge INSIDE the candle (white text on green/red;
+            // gray = outside the entry window). Bars.GetHigh/GetLow = the
+            // real prices of the chart bar (Input[0] here is the signal
+            // value, so High[0] would be wrong).
+            if (ShowSignalBand && inWindow)
                 Draw.RegionHighlightX(this, "TOAIBand" + CurrentBar, 0, 0,
                     passed ? passBand : skipBand);
 
@@ -172,7 +173,7 @@ namespace NinjaTrader.NinjaScript.Indicators
                 new SimpleFont("Arial", 12) { Bold = true },
                 System.Windows.TextAlignment.Center,
                 Brushes.Transparent,
-                passed ? Brushes.Green : Brushes.Red, 85);
+                !inWindow ? Brushes.Gray : passed ? Brushes.Green : Brushes.Red, 85);
         }
     }
 }

@@ -66,23 +66,14 @@ def resolve_entry_window(auto_window):
         return auto_window
 
 
-def _stamp_shift_minutes() -> int:
-    """Chart stamps lag true US Eastern by 1h during US DST (the backtest's
-    entry times flip exactly on the DST dates). NinjaScript compares the
-    window against chart stamps, so the session-clock window is shifted to
-    today's stamp clock; the watch republishes it on every startup/retrain."""
-    import pandas as pd
-    offset = pd.Timestamp.now(tz="America/New_York").utcoffset()
-    return int(offset.total_seconds() // 60) + 300   # 60 in DST, 0 in winter
-
-
 def write_entry_window(window):
-    """Publish the resolved window for NinjaScript, converted from session
-    minutes (true US Eastern) to the chart's stamp clock."""
+    """Publish the resolved window for NinjaScript in SESSION minutes (true
+    US Eastern). The indicators convert each bar's stamp to session time
+    themselves (TOAIExporter.SessionMinutes), so one window works across
+    DST flips and on historical bars alike."""
     if window:
-        shift = _stamp_shift_minutes()
         (MODEL_FILE.parent / "entry_window.txt").write_text(
-            f"{window[0] - shift:g}-{window[1] - shift:g}")
+            f"{window[0]:g}-{window[1]:g}")
 
 
 def list_instruments() -> list[str]:

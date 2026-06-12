@@ -46,14 +46,13 @@ def score_history(verbose: bool = True) -> pd.DataFrame:
     df = derive_features(df)
     df = df.dropna(subset=bundle["features"])
 
-    # Score only bars inside the strategy's entry window (when known).
-    # Outside it the strategy never trades and the model never saw data —
-    # a badge there would be a guess, not a prediction. A hand-written
-    # entry_window_manual.txt overrides the auto-derived window, and the
-    # resolved window is republished for NinjaScript on watch startup.
+    # ALL bars get a score — historical signals outside the entry window
+    # keep their badge, drawn in gray by TOAISignalLabel (the indicators
+    # compute each bar's session time themselves and read the window from
+    # entry_window.txt). A hand-written entry_window_manual.txt overrides
+    # the auto-derived window; republished here on every watch startup.
     window = config.resolve_entry_window(bundle.get("entry_window"))
     if window:
-        df = df[df["TimeOfDay_Min"].between(*window)]
         try:
             config.write_entry_window(window)
         except OSError:
