@@ -53,6 +53,12 @@ namespace NinjaTrader.NinjaScript.Indicators
         [NinjaScriptProperty]
         public bool ShowSignalBand { get; set; } = true;
 
+        // The input plot value at which BloodHound considers the signal
+        // fired. Match BloodHound's Long/Short Threshold (default 0.8 for
+        // the Confidence plots; a pure 0/1 signal plot works with this too).
+        [NinjaScriptProperty]
+        public double SignalFireLevel { get; set; } = 0.8;
+
         private Brush passBand, skipBand;
 
         protected override void OnStateChange()
@@ -84,9 +90,10 @@ namespace NinjaTrader.NinjaScript.Indicators
 
         protected override void OnBarUpdate()
         {
-            // Input is the BloodHound signal plot: 0 = no signal on this bar.
+            // Input is the BloodHound plot (e.g. Long Confidence, 0..1).
+            // Below the fire level = no signal on this bar.
             double signal = Input[0];
-            if (double.IsNaN(signal) || Math.Abs(signal) < 0.5)
+            if (double.IsNaN(signal) || Math.Abs(signal) < SignalFireLevel)
                 return;
 
             // A signal plot is 1 / -1. Price is in the thousands — if we see
