@@ -95,6 +95,23 @@ TOAI_Train.bat), בכל הפעלה של TOAI_Watch.bat, או ידנית: `python
 - תנאי: bar_data.csv חייב לכסות את התקופה שמנגנים (לטעון את הצ'ארט עם מספיק
   ימים עם ExportBarData = true, ואז לעדכן את bar_scores)
 
+## עדכון אוטומטי מ-Strategy Analyzer
+
+כש-TOAI_Watch.bat רץ, הוא משגיח גם על תיקיית הנתונים: **שמירת export חדש
+מ-Strategy Analyzer לתוך `C:\LIOR_ML` מאמנת את המודל אוטומטית** — בלי
+ללחוץ על שום כפתור. אין צורך למחוק exports ישנים: החדש ביותר תמיד מנצח.
+אחרי האימון ה-Watch טוען את המודל החדש מיד; לתוויות ההיסטוריות — Reload לצ'ארט.
+
+## מעבר Timeframe (למשל 15-min → 1-min)
+
+ה-features ב-bar_data.csv תלויים ב-timeframe (ATR20 על ברים של דקה ≠ ATR20
+על ברים של 15 דקות). לכן כשמחליפים TF:
+
+1. **לשנות שם** ל-bar_data.csv הישן (למשל `bar_data_15min.csv`) — לא למחוק
+2. לפתוח צ'ארט על ה-TF החדש עם TOAIExporter (`ExportBarData = true`) ועם
+   מספיק ימים לכסות את תקופת הבקטסט — bar_data.csv חדש ייבנה בטעינה
+3. להריץ בקטסט על אותו TF ולשמור export ל-`C:\LIOR_ML` — האימון יקרה אוטומטית
+
 ## חיווי על הגרף
 
 - **באנר למעלה (TOAIExporter):** `Probability of Win: 62% | TRADE ALLOWED (min 55)` — ירוק כשעובר, אדום כשנחסם
