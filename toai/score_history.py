@@ -46,6 +46,13 @@ def score_history(verbose: bool = True) -> pd.DataFrame:
     df = derive_features(df)
     df = df.dropna(subset=bundle["features"])
 
+    # Score only bars inside the strategy's entry window (when known).
+    # Outside it the strategy never trades and the model never saw data —
+    # a badge there would be a guess, not a prediction.
+    window = bundle.get("entry_window")
+    if window:
+        df = df[df["TimeOfDay_Min"].between(*window)]
+
     X = bundle["scaler"].transform(df[bundle["features"]])
     probs = bundle["model"].predict_proba(X)[:, 1] * 100
 

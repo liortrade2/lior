@@ -27,6 +27,11 @@ MODEL_FEATURES = [
     "Volume_Ratio",     # already a ratio
     "BB_Width_ATR",     # BBand_Width / ATR20 — band width vs true range
     "ZScore",           # already standardized
+    "TimeOfDay_Min",    # minutes since midnight — late entries get truncated
+                        # by the session-close exit, and the data shows win
+                        # rate falls with entry hour. Derived from DateTime;
+                        # live rows (no DateTime column) use the clock, which
+                        # matches because the watch scores right at bar close.
 ]
 
 
@@ -37,6 +42,12 @@ def derive_features(df: pd.DataFrame) -> pd.DataFrame:
     raw feature names still finds its columns and keeps scoring.
     """
     df = df.copy()
+    if "DateTime" in df.columns:
+        t = pd.to_datetime(df["DateTime"], errors="coerce")
+        df["TimeOfDay_Min"] = t.dt.hour * 60 + t.dt.minute
+    else:
+        now = pd.Timestamp.now()
+        df["TimeOfDay_Min"] = now.hour * 60 + now.minute
     atr = df["ATR20"].replace(0, np.nan)
     df["ATR_Pct"] = df["ATR20"] / df["EMA20"].replace(0, np.nan) * 100
     df["EMA9_vs_EMA20"] = (df["EMA9"] - df["EMA20"]) / atr

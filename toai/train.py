@@ -76,11 +76,22 @@ def train(df: pd.DataFrame | None = None, features=None, verbose: bool = True):
     # time period. The random-split table is optimistic (time leakage).
     wf_report = threshold_report(wf_y, wf_prob) if len(wf_y) else None
 
+    # The strategy only enters during a time window (all training entries
+    # fall inside it). Outside that window the model has never seen a trade
+    # and its score is extrapolation — score_history skips those bars so the
+    # chart shows no misleading badge there. Padded by one bar.
+    entry_window = None
+    if "TimeOfDay_Min" in df.columns:
+        tod = df["TimeOfDay_Min"].dropna()
+        if len(tod):
+            entry_window = (float(tod.min()) - 15, float(tod.max()) + 15)
+
     config.MODEL_FILE.parent.mkdir(parents=True, exist_ok=True)
     joblib.dump({"model": model, "scaler": scaler, "features": features, "pmv": pmv,
                  "walk_forward": wf_aucs,
                  "threshold_report": report,
-                 "wf_threshold_report": wf_report},
+                 "wf_threshold_report": wf_report,
+                 "entry_window": entry_window},
                 config.MODEL_FILE)
 
     if verbose:
