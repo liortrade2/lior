@@ -43,6 +43,7 @@ namespace NinjaTrader.NinjaScript.Indicators
         private const string RootDir = @"C:\LIOR_ML";
         private const string ThresholdFile = RootDir + @"\threshold.txt";
         private string scoreFile, barScoresFile;
+        private double windowLo = -1, windowHi = -1;   // strategy entry window
 
         // Precomputed per-bar scores — labels work retroactively on
         // historical bars and in Playback, not only live.
@@ -89,6 +90,8 @@ namespace NinjaTrader.NinjaScript.Indicators
                     TOAIExporter.SanitizeName(Bars.Instrument.MasterInstrument.Name);
                 scoreFile = dataDir + @"\score.txt";
                 barScoresFile = dataDir + @"\bar_scores.csv";
+                TOAIExporter.TryReadWindow(dataDir + @"\entry_window.txt",
+                    out windowLo, out windowHi);
                 string error = null;
                 scoreMap = TOAIExporter.LoadScoreMap(barScoresFile, ref error);
                 // threshold.txt (set once in the TOAI panel) overrides the property.
@@ -126,6 +129,13 @@ namespace NinjaTrader.NinjaScript.Indicators
             }
             else if (State != State.Historical)
             {
+                // Outside the strategy's entry window there is no valid
+                // prediction — no badge, rather than the unrelated live score.
+                // (Historical bars need no check: bar_scores.csv only contains
+                // in-window bars, so out-of-window signals simply find no score.)
+                double barMinute = Time[0].Hour * 60 + Time[0].Minute;
+                if (windowLo >= 0 && (barMinute < windowLo || barMinute > windowHi))
+                    return;
                 try
                 {
                     if (System.IO.File.Exists(scoreFile))

@@ -32,7 +32,8 @@ namespace NinjaTrader.NinjaScript.Indicators
         // threshold.txt stays at the ROOT — one threshold for all charts.
         private const string RootDir = @"C:\LIOR_ML";
         private const string ThresholdFile = RootDir + @"\threshold.txt";
-        private string dataDir, featuresFile, barDataFile, scoreFile, barScoresFile;
+        private string dataDir, featuresFile, barDataFile, scoreFile, barScoresFile,
+            entryWindowFile;
         private const string Header =
             "ATR20,EMA9,EMA20,EMA50,RSI14,ADX14,Distance_SwingHigh,Distance_SwingLow,Volume_Ratio,BBand_Width,ZScore";
 
@@ -92,6 +93,7 @@ namespace NinjaTrader.NinjaScript.Indicators
                 barDataFile = dataDir + @"\bar_data.csv";
                 scoreFile = dataDir + @"\score.txt";
                 barScoresFile = dataDir + @"\bar_scores.csv";
+                entryWindowFile = dataDir + @"\entry_window.txt";
                 try
                 {
                     System.IO.Directory.CreateDirectory(dataDir);
@@ -136,6 +138,26 @@ namespace NinjaTrader.NinjaScript.Indicators
             }
             if (prev != tf)
                 System.IO.File.WriteAllText(metaPath, tf);
+        }
+
+        // The strategy's entry window in minutes-since-midnight ("465-690"),
+        // written by Python at training time from the backtest's actual
+        // entry times. Outside it the model has never seen a trade, so no
+        // score is shown and the gate blocks. Shared with TOAISignalLabel.
+        internal static bool TryReadWindow(string path, out double lo, out double hi)
+        {
+            lo = hi = -1;
+            try
+            {
+                if (!System.IO.File.Exists(path)) return false;
+                string[] parts = System.IO.File.ReadAllText(path).Trim().Split('-');
+                if (parts.Length != 2) return false;
+                return double.TryParse(parts[0], System.Globalization.NumberStyles.Float,
+                           System.Globalization.CultureInfo.InvariantCulture, out lo)
+                    && double.TryParse(parts[1], System.Globalization.NumberStyles.Float,
+                           System.Globalization.CultureInfo.InvariantCulture, out hi);
+            }
+            catch { lo = hi = -1; return false; }
         }
 
         // "ES JUN26" charts share the master name "ES"; anything that is
@@ -295,6 +317,25 @@ namespace NinjaTrader.NinjaScript.Indicators
                 System.IO.File.WriteAllText(featuresFile, Header + Environment.NewLine + line + Environment.NewLine);
             }
             catch (Exception ex) { ioError = ex.Message; }
+
+            // Outside the strategy's entry window the model has never seen a
+            // trade — show that instead of an extrapolated score, and block
+            // the gate (the strategy should not be entering here anyway).
+            // Re-read each bar so a retrain's new window applies live.
+            double winLo, winHi;
+            double barMinute = Time[0].Hour * 60 + Time[0].Minute;
+            if (TryReadWindow(entryWindowFile, out winLo, out winHi)
+                && (barMinute < winLo || barMinute > winHi))
+            {
+                MlFilterPassed = false;
+                Values[1][0] = 0;
+                Draw.TextFixed(this, "TOAIScore",
+                    string.Format("TOAI: outside entry window ({0:00}:{1:00}-{2:00}:{3:00}) — no prediction, gate closed",
+                        (int)winLo / 60, (int)winLo % 60, (int)winHi / 60, (int)winHi % 60),
+                    TextPosition.TopLeft, Brushes.Gray, new SimpleFont("Arial", 14),
+                    Brushes.Transparent, Brushes.Transparent, 0);
+                return;
+            }
 
             // Score resolution: precomputed bar_scores.csv first (covers
             // Playback / Market Replay, where the "live" bars are past bars

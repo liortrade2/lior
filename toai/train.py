@@ -93,6 +93,10 @@ def train(df: pd.DataFrame | None = None, features=None, verbose: bool = True):
                  "wf_threshold_report": wf_report,
                  "entry_window": entry_window},
                 config.MODEL_FILE)
+    # NinjaScript reads the window too (banner + gate outside it).
+    if entry_window:
+        (config.MODEL_FILE.parent / "entry_window.txt").write_text(
+            f"{entry_window[0]:g}-{entry_window[1]:g}")
 
     if verbose:
         print(f"Trades in training set: {len(df)}")
