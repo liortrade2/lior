@@ -48,14 +48,14 @@ def score_history(verbose: bool = True) -> pd.DataFrame:
 
     # Score only bars inside the strategy's entry window (when known).
     # Outside it the strategy never trades and the model never saw data —
-    # a badge there would be a guess, not a prediction. The window file is
-    # (re)written here too so NinjaScript stays in sync on watch startup.
-    window = bundle.get("entry_window")
+    # a badge there would be a guess, not a prediction. A hand-written
+    # entry_window_manual.txt overrides the auto-derived window, and the
+    # resolved window is republished for NinjaScript on watch startup.
+    window = config.resolve_entry_window(bundle.get("entry_window"))
     if window:
         df = df[df["TimeOfDay_Min"].between(*window)]
         try:
-            (config.MODEL_FILE.parent / "entry_window.txt").write_text(
-                f"{window[0]:g}-{window[1]:g}")
+            config.write_entry_window(window)
         except OSError:
             pass
 

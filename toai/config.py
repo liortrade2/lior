@@ -45,6 +45,33 @@ def set_instrument(name: str | None):
 set_instrument(INSTRUMENT)
 
 
+def _parse_minutes(s: str) -> float:
+    """'9:30' -> 570; plain numbers pass through as minutes."""
+    s = s.strip()
+    if ":" in s:
+        h, m = s.split(":")
+        return int(h) * 60 + int(m)
+    return float(s)
+
+
+def resolve_entry_window(auto_window):
+    """entry_window_manual.txt (hand-edited, '9:30-16:00' or minutes)
+    overrides the window auto-derived from the backtest's entry times."""
+    manual = MODEL_FILE.parent / "entry_window_manual.txt"
+    try:
+        lo, hi = manual.read_text().strip().split("-")
+        return (_parse_minutes(lo), _parse_minutes(hi))
+    except (FileNotFoundError, ValueError, OSError):
+        return auto_window
+
+
+def write_entry_window(window):
+    """Publish the resolved window for NinjaScript (minutes since midnight)."""
+    if window:
+        (MODEL_FILE.parent / "entry_window.txt").write_text(
+            f"{window[0]:g}-{window[1]:g}")
+
+
 def list_instruments() -> list[str]:
     """Instrument subdirectories under DATA_ROOT that contain TOAI data."""
     if not DATA_ROOT.is_dir():
