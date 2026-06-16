@@ -280,15 +280,33 @@ namespace NinjaTrader.NinjaScript.Indicators
             return false;
         }
 
+        // Same shared+retry idea for APPENDING bar_data.csv — the watch reads
+        // it during score_history and a BloodHound copy may append it too.
+        private static bool TryAppendShared(string path, string content)
+        {
+            for (int attempt = 0; attempt < 6; attempt++)
+            {
+                try
+                {
+                    using (var fs = new System.IO.FileStream(path, System.IO.FileMode.Append,
+                               System.IO.FileAccess.Write, System.IO.FileShare.ReadWrite))
+                    using (var sw = new System.IO.StreamWriter(fs))
+                        sw.Write(content);
+                    return true;
+                }
+                catch (System.IO.IOException) { System.Threading.Thread.Sleep(20); }
+                catch { return false; }
+            }
+            return false;
+        }
+
         private void FlushHistoryBuffer()
         {
             if (histBuffer == null || histBuffer.Length == 0) return;
-            try
-            {
-                System.IO.File.AppendAllText(barDataFile, histBuffer.ToString());
+            if (TryAppendShared(barDataFile, histBuffer.ToString()))
                 histBuffer.Clear();
-            }
-            catch (Exception ex) { ioError = ex.Message; }
+            else
+                ioError = "bar_data.csv busy — history flushes on next chart reload";
         }
 
         protected override void OnBarUpdate()
@@ -340,13 +358,19 @@ namespace NinjaTrader.NinjaScript.Indicators
             MinProbabilityThreshold = ReadThreshold(ThresholdFile, MinProbabilityThreshold);
             Lines[0].Value = MinProbabilityThreshold;
 
-            // Live bars are appended one by one (the buffer was already flushed).
-            try
+            // Live bars are appended one by one (the buffer was already
+            // flushed). Shared+retry, and only mark the bar exported once the
+            // write actually succeeds — a transient lock then retries next
+            // bar instead of silently dropping it.
+            if (ExportBarData && (exportedStamps == null || !exportedStamps.Contains(Time[0])))
             {
-                if (ExportBarData && (exportedStamps == null || exportedStamps.Add(Time[0])))
-                    System.IO.File.AppendAllText(barDataFile, stamped);
+                if (TryAppendShared(barDataFile, stamped))
+                {
+                    if (exportedStamps != null) exportedStamps.Add(Time[0]);
+                }
+                else
+                    ioError = "bar_data.csv busy — retried, will refresh next bar";
             }
-            catch (Exception ex) { ioError = ex.Message; }
 
             // Real-time bridge (only meaningful when the Python watch runs).
             // Shared+retry write so a watch read mid-write doesn't error out.

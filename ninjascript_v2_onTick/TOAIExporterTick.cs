@@ -150,6 +150,24 @@ namespace NinjaTrader.NinjaScript.Indicators
             return false;
         }
 
+        private static bool TryAppendShared(string path, string content)
+        {
+            for (int attempt = 0; attempt < 6; attempt++)
+            {
+                try
+                {
+                    using (var fs = new System.IO.FileStream(path, System.IO.FileMode.Append,
+                               System.IO.FileAccess.Write, System.IO.FileShare.ReadWrite))
+                    using (var sw = new System.IO.StreamWriter(fs))
+                        sw.Write(content);
+                    return true;
+                }
+                catch (System.IO.IOException) { System.Threading.Thread.Sleep(20); }
+                catch { return false; }
+            }
+            return false;
+        }
+
         private static System.Collections.Generic.HashSet<DateTime>
             LoadExportedStamps(string path, ref string error)
         {
@@ -177,12 +195,10 @@ namespace NinjaTrader.NinjaScript.Indicators
         private void FlushHistoryBuffer()
         {
             if (histBuffer == null || histBuffer.Length == 0) return;
-            try
-            {
-                System.IO.File.AppendAllText(barDataFile, histBuffer.ToString());
+            if (TryAppendShared(barDataFile, histBuffer.ToString()))
                 histBuffer.Clear();
-            }
-            catch (Exception ex) { ioError = ex.Message; }
+            else
+                ioError = "bar_data.csv busy — history flushes on next chart reload";
         }
 
         // Build the feature CSV line from the bar `ago` bars back ([0]=forming,
@@ -236,12 +252,15 @@ namespace NinjaTrader.NinjaScript.Indicators
             {
                 string line = BuildFeatureLine(1);
                 string stamped = Time[1].ToString("yyyy-MM-dd HH:mm:ss") + "," + line + Environment.NewLine;
-                try
+                if (ExportBarData && (exportedStamps == null || !exportedStamps.Contains(Time[1])))
                 {
-                    if (ExportBarData && (exportedStamps == null || exportedStamps.Add(Time[1])))
-                        System.IO.File.AppendAllText(barDataFile, stamped);
+                    if (TryAppendShared(barDataFile, stamped))
+                    {
+                        if (exportedStamps != null) exportedStamps.Add(Time[1]);
+                    }
+                    else
+                        ioError = "bar_data.csv busy — retried, will refresh next bar";
                 }
-                catch (Exception ex) { ioError = ex.Message; }
                 if (!TryWriteShared(featuresFile, Header + Environment.NewLine + line + Environment.NewLine))
                     ioError = "current_features.csv busy — retried, will refresh next bar";
             }
