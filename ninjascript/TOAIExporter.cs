@@ -140,27 +140,17 @@ namespace NinjaTrader.NinjaScript.Indicators
                 System.IO.File.WriteAllText(metaPath, tf);
         }
 
-        // Chart timestamps flip by one hour at every US DST boundary
-        // (verified on two years of backtest entries), while the strategy's
-        // session is constant in true US Eastern. Reading the stamp as fixed
-        // UTC-5 and converting to Eastern gives a season-proof "session
-        // clock" — correct per bar, including historical bars from the
-        // other DST regime. Shared with TOAISignalLabel.
-        private static TimeZoneInfo easternZone;
+        // Minutes since midnight in the chart clock — NinjaTrader already
+        // shows DST-aware US Eastern, so the raw bar time IS the session
+        // time (verified on 2679 MES entries: RTH sits at 09:42-16:00 in
+        // both winter and summer). No timezone conversion. Shared with
+        // TOAISignalLabel.
         internal static double SessionMinutes(DateTime barTime)
         {
-            try
-            {
-                if (easternZone == null)
-                    easternZone = TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time");
-                DateTime utc = DateTime.SpecifyKind(barTime.AddHours(5), DateTimeKind.Utc);
-                DateTime et = TimeZoneInfo.ConvertTimeFromUtc(utc, easternZone);
-                return et.Hour * 60 + et.Minute;
-            }
-            catch { return barTime.Hour * 60 + barTime.Minute; }
+            return barTime.Hour * 60 + barTime.Minute;
         }
 
-        // The strategy's entry window in SESSION minutes ("525-690"),
+        // The strategy's entry window in chart-clock minutes ("570-960"),
         // written by Python at training time from the backtest's actual
         // entry times. Outside it the model has never seen a trade, so the
         // gate blocks live trades. Shared with TOAISignalLabel.
@@ -340,20 +330,18 @@ namespace NinjaTrader.NinjaScript.Indicators
 
             // Outside the strategy's entry window the model has never seen a
             // trade — the gate blocks (the strategy should not be entering
-            // here anyway) and the banner says so. The window file is in
-            // session minutes; the banner converts it to the chart's clock.
+            // here anyway) and the banner says so. The window is in chart-
+            // clock minutes (true Eastern), same clock as the bar time.
             // Re-read each bar so a retrain's new window applies live.
             double winLo, winHi;
             if (TryReadWindow(entryWindowFile, out winLo, out winHi))
             {
-                double sessionMin = SessionMinutes(Time[0]);
-                if (sessionMin < winLo || sessionMin > winHi)
+                double barMinute = SessionMinutes(Time[0]);
+                if (barMinute < winLo || barMinute > winHi)
                 {
                     MlFilterPassed = false;
                     Values[1][0] = 0;
-                    // Session-to-chart-clock shift for the current season.
-                    double shift = sessionMin - (Time[0].Hour * 60 + Time[0].Minute);
-                    int lo = (int)(winLo - shift), hi = (int)(winHi - shift);
+                    int lo = (int)winLo, hi = (int)winHi;
                     Draw.TextFixed(this, "TOAIScore",
                         string.Format("TOAI: outside entry window ({0:00}:{1:00}-{2:00}:{3:00}) — no prediction, gate closed",
                             lo / 60, lo % 60, hi / 60, hi % 60),

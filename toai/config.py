@@ -55,9 +55,11 @@ def _parse_minutes(s: str) -> float:
 
 
 def resolve_entry_window(auto_window):
-    """entry_window_manual.txt (hand-edited, '9:30-16:00' or minutes, in
-    TRUE US Eastern — the same clock as the BlackBird scheduler) overrides
-    the window auto-derived from the backtest's entry times."""
+    """entry_window_manual.txt (hand-edited, '9:30-16:00' or minutes, in the
+    chart clock = true US Eastern, the same clock as the BlackBird scheduler)
+    overrides the window auto-derived from the backtest's entry times. For an
+    RTH strategy set it to 9:30-16:00 to gate the whole session rather than
+    only the bars where trades happened to fire."""
     manual = MODEL_FILE.parent / "entry_window_manual.txt"
     try:
         lo, hi = manual.read_text().strip().split("-")
@@ -67,10 +69,9 @@ def resolve_entry_window(auto_window):
 
 
 def write_entry_window(window):
-    """Publish the resolved window for NinjaScript in SESSION minutes (true
-    US Eastern). The indicators convert each bar's stamp to session time
-    themselves (TOAIExporter.SessionMinutes), so one window works across
-    DST flips and on historical bars alike."""
+    """Publish the resolved window for NinjaScript in chart-clock minutes.
+    NinjaTrader stamps are already DST-aware US Eastern, so the indicators
+    compare it directly against each bar's time (no timezone conversion)."""
     if window:
         (MODEL_FILE.parent / "entry_window.txt").write_text(
             f"{window[0]:g}-{window[1]:g}")

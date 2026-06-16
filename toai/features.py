@@ -27,29 +27,25 @@ MODEL_FEATURES = [
     "Volume_Ratio",     # already a ratio
     "BB_Width_ATR",     # BBand_Width / ATR20 — band width vs true range
     "ZScore",           # already standardized
-    "TimeOfDay_Min",    # minutes since midnight in SESSION time (true US
-                        # Eastern) — late entries get truncated by the
-                        # session-close exit, and the data shows win rate
-                        # falls with entry hour. Derived from DateTime; live
-                        # rows (no DateTime column) use the clock, which
-                        # matches because the watch scores right at bar close.
+    "TimeOfDay_Min",    # minutes since midnight in the chart clock, which
+                        # NinjaTrader already exports as true US Eastern
+                        # (DST-aware). Late entries get truncated by the
+                        # session-close exit and win rate falls with entry
+                        # hour, so the model gets the entry time directly.
 ]
-
-_SESSION_TZ = "America/New_York"
 
 
 def _session_minutes(ts: pd.Series) -> pd.Series:
-    """Chart-stamp time -> minutes since midnight in true US Eastern.
+    """Minutes since midnight in the chart's clock — no timezone math.
 
-    Chart timestamps flip by one hour at every US DST boundary (verified on
-    two years of backtest entries: first entry 09:00 all winter, 08:00 all
-    summer, flipping exactly on the DST dates). Interpreting the stamp as
-    fixed UTC-5 and converting to America/New_York removes the flip — the
-    session sits at the same clock values all year (entries 09:00-11:15).
+    NinjaTrader already exports DST-aware US Eastern timestamps. Verified
+    on 2679 MES backtest entries: RTH entries sit at 09:42-16:00 in BOTH
+    winter and summer, with no seasonal flip. So the raw stamp clock is
+    the session clock; an earlier UTC-5->Eastern conversion (based on an
+    apparent flip in a smaller, messier sample) only added a spurious
+    one-hour summer shift and has been removed.
     """
-    utc = ts + pd.Timedelta(hours=5)
-    et = utc.dt.tz_localize("UTC").dt.tz_convert(_SESSION_TZ)
-    return et.dt.hour * 60 + et.dt.minute
+    return ts.dt.hour * 60 + ts.dt.minute
 
 
 def derive_features(df: pd.DataFrame) -> pd.DataFrame:
