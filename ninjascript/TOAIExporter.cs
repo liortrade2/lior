@@ -257,6 +257,29 @@ namespace NinjaTrader.NinjaScript.Indicators
             return set;
         }
 
+        // current_features.csv is rewritten every bar while the Python watch
+        // may be reading it (and BloodHound runs a second copy of this
+        // indicator that writes it too). A naive write throws "file in use"
+        // on that race. Retry briefly with a shared handle so the collision
+        // is invisible instead of flashing a (self-healing) error.
+        private static bool TryWriteShared(string path, string content)
+        {
+            for (int attempt = 0; attempt < 6; attempt++)
+            {
+                try
+                {
+                    using (var fs = new System.IO.FileStream(path, System.IO.FileMode.Create,
+                               System.IO.FileAccess.Write, System.IO.FileShare.ReadWrite))
+                    using (var sw = new System.IO.StreamWriter(fs))
+                        sw.Write(content);
+                    return true;
+                }
+                catch (System.IO.IOException) { System.Threading.Thread.Sleep(20); }
+                catch { return false; }
+            }
+            return false;
+        }
+
         private void FlushHistoryBuffer()
         {
             if (histBuffer == null || histBuffer.Length == 0) return;
@@ -322,11 +345,13 @@ namespace NinjaTrader.NinjaScript.Indicators
             {
                 if (ExportBarData && (exportedStamps == null || exportedStamps.Add(Time[0])))
                     System.IO.File.AppendAllText(barDataFile, stamped);
-
-                // Real-time bridge: only meaningful when Python watch mode is running.
-                System.IO.File.WriteAllText(featuresFile, Header + Environment.NewLine + line + Environment.NewLine);
             }
             catch (Exception ex) { ioError = ex.Message; }
+
+            // Real-time bridge (only meaningful when the Python watch runs).
+            // Shared+retry write so a watch read mid-write doesn't error out.
+            if (!TryWriteShared(featuresFile, Header + Environment.NewLine + line + Environment.NewLine))
+                ioError = "current_features.csv busy — retried, will refresh next bar";
 
             // Outside the strategy's entry window the model has never seen a
             // trade — the gate blocks (the strategy should not be entering
@@ -399,6 +424,11 @@ namespace NinjaTrader.NinjaScript.Indicators
                     TextPosition.BottomLeft, Brushes.Yellow, new SimpleFont("Arial", 12),
                     Brushes.Transparent, Brushes.Transparent, 0);
                 ioError = null;
+            }
+            else
+            {
+                // Clear a stale error banner once the transient lock resolved.
+                RemoveDrawObject("TOAIError");
             }
 
             // MLPass plot: 1 = score passed the threshold, 0 = blocked.

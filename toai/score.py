@@ -3,6 +3,7 @@
 NinjaScript writes current_features.csv on each bar close and reads score.txt
 back to allow/skip the signal (research doc §6, steps 3-4).
 """
+import os
 import time
 
 import joblib
@@ -10,6 +11,26 @@ import pandas as pd
 
 from . import config
 from .features import derive_features
+
+
+def _read_features_with_retry(path, attempts=6, delay=0.04):
+    """Read current_features.csv defensively. The NinjaScript exporter
+    rewrites it every bar (and a second BloodHound copy may too), so a read
+    can hit a momentary lock or a half-written file — retry briefly instead
+    of crashing the watch."""
+    last = None
+    for _ in range(attempts):
+        try:
+            df = pd.read_csv(path)
+            if len(df) and "ATR20" in df.columns:
+                return df
+        except (PermissionError, OSError, pd.errors.EmptyDataError,
+                pd.errors.ParserError) as e:
+            last = e
+        time.sleep(delay)
+    if last:
+        raise last
+    raise ValueError("current_features.csv empty/partial after retries")
 
 
 def load_model(path=None):
@@ -32,9 +53,13 @@ def score_latest_bar(bundle=None) -> float:
     """Score the last row of current_features.csv and write score.txt."""
     if bundle is None:
         bundle = load_model()
-    df = pd.read_csv(config.CURRENT_FEATURES_FILE)
+    df = _read_features_with_retry(config.CURRENT_FEATURES_FILE)
     score = score_features(bundle, df.tail(1))
-    config.SCORE_FILE.write_text(str(score))
+    # Atomic write (temp + replace) so the NinjaScript reader never sees a
+    # half-written score.txt.
+    tmp = config.SCORE_FILE.with_suffix(".tmp")
+    tmp.write_text(str(score))
+    os.replace(tmp, config.SCORE_FILE)
     return score
 
 
@@ -125,7 +150,13 @@ def watch(interval_seconds: float = 2.0):
                         print(f"[{name or 'root'}] no model.pkl yet — save a "
                               "Strategy Analyzer export to train it.")
                     continue
-            score = score_latest_bar(bundles[name])
+            try:
+                score = score_latest_bar(bundles[name])
+            except Exception as e:
+                # A persistent file lock shouldn't kill the watch — skip this
+                # tick and try again on the next one.
+                print(f"[{name or 'root'}] score skipped (file busy): {e}")
+                continue
             # Re-read each time so a threshold change in the panel applies
             # immediately, without restarting the watch.
             threshold = config.get_threshold()
