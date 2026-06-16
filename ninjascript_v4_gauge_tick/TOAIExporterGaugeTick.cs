@@ -72,6 +72,30 @@ namespace NinjaTrader.NinjaScript.Indicators
         private readonly System.Collections.Generic.List<double> hudHistory =
             new System.Collections.Generic.List<double>();
 
+        // Single-writer guard. The chart instance AND BloodHound's internal
+        // solver copy both run OnBarUpdate; without this each appends every
+        // bar and bar_data.csv (and current_features.csv) gets written twice.
+        // Only ONE instance per data folder writes; the others still read the
+        // score and compute MLPass for their own gate/display.
+        private static readonly object writerLock = new object();
+        private static readonly System.Collections.Generic.Dictionary<string, TOAIExporterGaugeTick> writers
+            = new System.Collections.Generic.Dictionary<string, TOAIExporterGaugeTick>();
+
+        private bool IsWriter()
+        {
+            if (dataDir == null) return true;
+            lock (writerLock)
+            {
+                TOAIExporterGaugeTick cur;
+                if (!writers.TryGetValue(dataDir, out cur) || cur == null)
+                {
+                    writers[dataDir] = this;
+                    return true;
+                }
+                return cur == this;
+            }
+        }
+
         protected override void OnStateChange()
         {
             if (State == State.SetDefaults)
@@ -122,6 +146,13 @@ namespace NinjaTrader.NinjaScript.Indicators
             else if (State == State.Realtime || State == State.Terminated)
             {
                 FlushHistoryBuffer();
+                if (State == State.Terminated && dataDir != null)
+                    lock (writerLock)
+                    {
+                        TOAIExporterGaugeTick cur;
+                        if (writers.TryGetValue(dataDir, out cur) && cur == this)
+                            writers[dataDir] = null;   // release so another instance can write
+                    }
             }
         }
 
@@ -206,6 +237,7 @@ namespace NinjaTrader.NinjaScript.Indicators
         private void FlushHistoryBuffer()
         {
             if (histBuffer == null || histBuffer.Length == 0) return;
+            if (!IsWriter()) { histBuffer.Clear(); return; }   // only one instance writes
             if (TryAppendShared(barDataFile, histBuffer.ToString()))
                 histBuffer.Clear();
             else
@@ -349,19 +381,24 @@ namespace NinjaTrader.NinjaScript.Indicators
                 Lines[0].Value = MinProbabilityThreshold;
                 hudHasWindow = TryReadWindow(entryWindowFile, out hudWinLo, out hudWinHi);
 
-                string line = BuildFeatureLine(1);
-                string stamped = Time[1].ToString("yyyy-MM-dd HH:mm:ss") + "," + line + Environment.NewLine;
-                if (ExportBarData && (exportedStamps == null || !exportedStamps.Contains(Time[1])))
+                // Only the single writer touches the files (chart copy vs
+                // BloodHound's solver copy) — prevents duplicate bar_data rows.
+                if (IsWriter())
                 {
-                    if (TryAppendShared(barDataFile, stamped))
+                    string line = BuildFeatureLine(1);
+                    string stamped = Time[1].ToString("yyyy-MM-dd HH:mm:ss") + "," + line + Environment.NewLine;
+                    if (ExportBarData && (exportedStamps == null || !exportedStamps.Contains(Time[1])))
                     {
-                        if (exportedStamps != null) exportedStamps.Add(Time[1]);
+                        if (TryAppendShared(barDataFile, stamped))
+                        {
+                            if (exportedStamps != null) exportedStamps.Add(Time[1]);
+                        }
+                        else
+                            ioError = "bar_data.csv busy — retried, will refresh next bar";
                     }
-                    else
-                        ioError = "bar_data.csv busy — retried, will refresh next bar";
+                    if (!TryWriteShared(featuresFile, Header + Environment.NewLine + line + Environment.NewLine))
+                        ioError = "current_features.csv busy — retried, will refresh next bar";
                 }
-                if (!TryWriteShared(featuresFile, Header + Environment.NewLine + line + Environment.NewLine))
-                    ioError = "current_features.csv busy — retried, will refresh next bar";
             }
 
             // Every tick: entry-window gate (cached window), using current time.
