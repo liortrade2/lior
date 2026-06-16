@@ -48,6 +48,11 @@ namespace NinjaTrader.NinjaScript.Indicators
         [NinjaScriptProperty]
         public bool ExportBarData { get; set; } = true;
 
+        // Set false when using the graphical TOAIGaugeHUD overlay, so the
+        // text banner and the graphical gauge don't both show.
+        [NinjaScriptProperty]
+        public bool ShowTextHud { get; set; } = true;
+
         public bool MlFilterPassed { get; private set; }
 
         private System.Text.StringBuilder histBuffer;
@@ -371,7 +376,7 @@ namespace NinjaTrader.NinjaScript.Indicators
                     hudInWindow = false;
                     hudPassed = false;
                     prevPassed = false;
-                    DrawGaugeHud();
+                    if (ShowTextHud) DrawGaugeHud();
                     return;
                 }
             }
@@ -420,7 +425,7 @@ namespace NinjaTrader.NinjaScript.Indicators
             if (MlFilterPassed && !prevPassed) flashUntil = DateTime.Now.AddSeconds(2);
             prevPassed = MlFilterPassed;
 
-            DrawGaugeHud();
+            if (ShowTextHud) DrawGaugeHud();
         }
 
         // The gauge HUD as a Draw.TextFixed block — appears at the price
