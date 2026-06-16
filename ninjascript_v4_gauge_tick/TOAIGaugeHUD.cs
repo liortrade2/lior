@@ -128,7 +128,7 @@ namespace NinjaTrader.NinjaScript.Indicators
 
             float x = (float)ChartPanel.X + 14f;
             float y = (float)ChartPanel.Y + 12f;
-            float w = 332f, h = 78f;
+            float w = 332f, h = 90f;
 
             SharpDX.Color accent =
                 !inWindow ? new SharpDX.Color(120, 144, 156, 255) :
@@ -166,16 +166,16 @@ namespace NinjaTrader.NinjaScript.Indicators
                 new SharpDX.RectangleF(x + 16f, y + 24f, 130f, 42f), aBrush);
             fBig.Dispose();
 
-            // Verdict.
+            // Verdict — under the big score, left column.
             string verdict = !inWindow ? "GATE CLOSED" : passed ? "ALLOWED" : "SKIPPED";
             var fMid = new SharpDX.DirectWrite.TextFormat(dw, "Segoe UI",
-                SharpDX.DirectWrite.FontWeight.Bold, SharpDX.DirectWrite.FontStyle.Normal, 14f);
+                SharpDX.DirectWrite.FontWeight.Bold, SharpDX.DirectWrite.FontStyle.Normal, 15f);
             RenderTarget.DrawText(verdict, fMid,
-                new SharpDX.RectangleF(x + 150f, y + 50f, 170f, 20f), aBrush);
+                new SharpDX.RectangleF(x + 18f, y + 62f, 150f, 22f), aBrush);
             fMid.Dispose();
 
             // Gauge bar (rounded track + rounded fill + threshold tick).
-            float gx = x + 150f, gy = y + 20f, gw = 166f, gh = 12f;
+            float gx = x + 150f, gy = y + 24f, gw = 166f, gh = 12f;
             var track = new SharpDX.Direct2D1.SolidColorBrush(RenderTarget, new SharpDX.Color(44, 46, 52, 255));
             var trackRR = new SharpDX.Direct2D1.RoundedRectangle
             { Rect = new SharpDX.RectangleF(gx, gy, gw, gh), RadiusX = gh / 2f, RadiusY = gh / 2f };
@@ -200,7 +200,7 @@ namespace NinjaTrader.NinjaScript.Indicators
             // Sparkline of recent scores (thin bars; green above threshold).
             if (hist.Count > 1)
             {
-                float sx = gx, sy = y + 50f, sh = 20f, bw = gw / 40f;
+                float sx = gx, sy = y + 58f, sh = 24f, bw = gw / 40f;
                 int n = hist.Count, start = Math.Max(0, n - 40), cnt = n - start;
                 for (int i = 0; i < cnt; i++)
                 {
