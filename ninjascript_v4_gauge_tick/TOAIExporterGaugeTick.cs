@@ -420,8 +420,16 @@ namespace NinjaTrader.NinjaScript.Indicators
             base.OnRender(chartControl, chartScale);
             if (RenderTarget == null || ChartPanel == null) return;
 
-            float x = (float)ChartPanel.X + 10f;
-            float y = (float)ChartPanel.Y + 8f;
+            // Draw the HUD in the top-left of the PRICE panel (panel 0), so it
+            // sits separately from this indicator's ProbOfTrue line in the
+            // sub-panel. Falls back to the indicator's own panel if needed.
+            var hudPanel = ChartPanel;
+            if (chartControl != null && chartControl.ChartPanels != null
+                && chartControl.ChartPanels.Count > 0)
+                hudPanel = chartControl.ChartPanels[0];
+
+            float x = (float)hudPanel.X + 10f;
+            float y = (float)hudPanel.Y + 8f;
             float w = 300f, h = 56f;
 
             SharpDX.Color accent =
