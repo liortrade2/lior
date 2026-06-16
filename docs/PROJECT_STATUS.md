@@ -88,16 +88,26 @@ SwingLow_ATR, Volume_Ratio, BB_Width_ATR, ZScore`
   מגבלות זמן פנימיות. ה-export החדש (06-12) כבר נכנס 10:00–13:15 ET —
   ייתכן שליאור שינה הגדרות. ליישר ולהריץ בקטסט ארוך.
 
-### ⭐ אסטרטגיה חדשה: BBTMP Bollinger Volatility Spike (2026-06-12 צהריים)
-ליאור עבר מ-Double CCI ל-**BBTMP Bollinger 2.5 Volatility Spike** (לוגיקה
-‏1-CCI EMA MACD_RTH) על גרפים של **2-דקות**, ‏ES + MES (+ NQ עתידי).
-- **MES**: ‏export של **2,679 עסקאות** (ינו 2025–ינו 2026), כניסות פרוסות
-  על כל RTH. ‏**PMV ‏0.6556, ‏Walk-forward ‏0.585/0.667/0.607/0.654** — כל
-  ה-folds חזקים ועקביים. **המודל הכי טוב עד כה.** ‏window override = RTH.
-- **ES**: עדיין מחזיק את מודל ה-Double CCI הישן (239 עסקאות). הצ'ארט כבר
-  רץ BBTMP — **צריך בקטסט BBTMP על ES + export** כדי לרענן. עד אז ציוני
-  ES לא רלוונטיים לאסטרטגיה הנוכחית (אבל ה-gate על RTH דרך ה-override).
-- הסף החי: **70** (shared). מתאים — לבדוק טבלת WF של MES לבחירה מדויקת.
+### ⭐ אסטרטגיה: BBTMP Bollinger Volatility Spike — מצב 2026-06-16
+ליאור על **BBTMP Bollinger 2.5 Volatility Spike** (לוגיקה 1-CCI EMA MACD_RTH),
+‏MES SEP26 **1-דקה** (עבר מ-2-דקה ל-1-דקה; הכל עקבי — bar_data, מודל, גרף).
+- **MES**: ‏4,908 עסקאות אימון (ינו 2025–ינו 2026). ‏**PMV ‏0.6681,
+  ‏Walk-forward ‏0.641/0.677/0.671/0.673** — כל ה-folds גבוהים ועקביים.
+  **המודל הכי טוב בפרויקט.** סף 70, חלון RTH (override 9:30-16:00).
+- **גרסה חיה = v4** (`ninjascript_v4_gauge_tick/`): ‏TOAIExporterGaugeTick
+  (גשר+שער+קו, ‏OnEachTick, ‏ShowTextHud=false) + ‏TOAIGaugeHUD (gauge גרפי
+  SharpDX על פאנל המחיר) + ‏TOAISignalLabelGaugeTick ×2 (Long+Short Confidence
+  → תוויות על שני הכיוונים). ‏v1 (`ninjascript/`) = fallback בלבד.
+- **BloodHound solver**: ‏`TOAIExporterGaugeTick.MLPass >= 1` ל-**שני**
+  הכיוונים (לא `>0`/`<0` — זה חוסם את כל השורטים!).
+
+### באגים שתוקנו (2026-06-16)
+- **single-writer**: הגרף ועותק ה-solver של BloodHound כתבו שניהם bar_data →
+  כפילות (38MB, 50% dups). מנגנון owner סטטי לכל מכשיר → רק מופע אחד כותב.
+  גם מבטל את ה-race על current_features. (תוקן ב-v4; ‏v1 עם אותה בעיה
+  לטנטית-לא-מזיקה — deduped בקריאה.)
+- **bar_scores מתיישן** (מתחדש רק בהפעלת Watch): מינורי, נפתר בטעינת צ'ארט /
+  restart ל-Watch. בר-סיגנל חי משתמש ב-score.txt עד אז.
 
 ## צעדים פתוחים (בצד ליאור — על מכונת המסחר)
 
