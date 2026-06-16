@@ -4,9 +4,10 @@
 //   * Calculate.OnEachTick — features still exported once per CLOSED bar, but
 //     score.txt / gate / banner refresh every tick, so within ~2s of a bar
 //     close the gate and HUD catch up (vs a full ~1-bar lag at bar close).
-//   * SharpDX gauge HUD in OnRender — big colored score, a 0-100 gauge bar
-//     with the threshold marked, a mini-history strip, and a flash when the
-//     score crosses up through the threshold.
+//   * Gauge HUD via Draw.TextFixed at the price panel's top-left — score +
+//     verdict, a 0-100 block bar with a threshold marker, and a sparkline of
+//     recent scores. TextFixed (unlike OnRender) is not clipped to the
+//     sub-panel, so it reliably shows on the price chart.
 //   * Same per-instrument file bridge + MLPass plot for BloodHound.
 //
 // Throttling: threshold.txt and entry_window.txt are read once per bar (not
@@ -72,6 +73,11 @@ namespace NinjaTrader.NinjaScript.Indicators
             {
                 Name = "TOAIExporterGaugeTick";
                 Calculate = Calculate.OnEachTick;
+                // Sub-panel for the ProbOfTrue line. The gauge HUD is drawn
+                // with Draw.TextFixed (block-character bar) at the price panel's
+                // top-left — TextFixed is NOT clipped to the sub-panel (unlike
+                // OnRender), so it reliably appears on the price chart while the
+                // line stays here, separate.
                 IsOverlay = false;
 
                 AddPlot(new Stroke(Brushes.DodgerBlue, 2), PlotStyle.Line, "ProbOfTrue");
@@ -365,6 +371,7 @@ namespace NinjaTrader.NinjaScript.Indicators
                     hudInWindow = false;
                     hudPassed = false;
                     prevPassed = false;
+                    DrawGaugeHud();
                     return;
                 }
             }
@@ -412,108 +419,73 @@ namespace NinjaTrader.NinjaScript.Indicators
             hudPassed = MlFilterPassed;
             if (MlFilterPassed && !prevPassed) flashUntil = DateTime.Now.AddSeconds(2);
             prevPassed = MlFilterPassed;
+
+            DrawGaugeHud();
         }
 
-        protected override void OnRender(NinjaTrader.Gui.Chart.ChartControl chartControl,
-                                         NinjaTrader.Gui.Chart.ChartScale chartScale)
+        // The gauge HUD as a Draw.TextFixed block — appears at the price
+        // panel's top-left (TextFixed isn't clipped to the sub-panel). Three
+        // lines: headline, the 0-100 bar with a threshold marker, a sparkline
+        // of recent scores. Monospace so the blocks align. One colour by state.
+        private void DrawGaugeHud()
         {
-            base.OnRender(chartControl, chartScale);
-            if (RenderTarget == null || ChartPanel == null) return;
+            Brush textBrush = !hudInWindow ? Brushes.Silver
+                : hudPassed ? Brushes.LimeGreen : Brushes.OrangeRed;
 
-            // Draw the HUD in the top-left of the PRICE panel (panel 0), so it
-            // sits separately from this indicator's ProbOfTrue line in the
-            // sub-panel. Falls back to the indicator's own panel if needed.
-            var hudPanel = ChartPanel;
-            if (chartControl != null && chartControl.ChartPanels != null
-                && chartControl.ChartPanels.Count > 0)
-                hudPanel = chartControl.ChartPanels[0];
-
-            float x = (float)hudPanel.X + 10f;
-            float y = (float)hudPanel.Y + 8f;
-            float w = 300f, h = 56f;
-
-            SharpDX.Color accent =
-                !hudInWindow ? new SharpDX.Color(120, 144, 156, 255) :
-                hudPassed ? new SharpDX.Color(46, 200, 90, 255) :
-                            new SharpDX.Color(255, 82, 54, 255);
-
-            var bgBrush = new SharpDX.Direct2D1.SolidColorBrush(RenderTarget, new SharpDX.Color(11, 11, 13, 220));
-            var panel = new SharpDX.Direct2D1.RoundedRectangle
-            { Rect = new SharpDX.RectangleF(x, y, w, h), RadiusX = 6f, RadiusY = 6f };
-            RenderTarget.FillRoundedRectangle(panel, bgBrush);
-            bgBrush.Dispose();
-
-            var accentBrush = new SharpDX.Direct2D1.SolidColorBrush(RenderTarget, accent);
-
-            if (DateTime.Now < flashUntil)
-                RenderTarget.DrawRoundedRectangle(panel, accentBrush, 2.5f);
-
-            string bigText = double.IsNaN(hudScore) ? "—" : string.Format("{0:F0}%", hudScore);
-            var tfBig = new SharpDX.DirectWrite.TextFormat(NinjaTrader.Core.Globals.DirectWriteFactory,
-                "Arial", SharpDX.DirectWrite.FontWeight.Bold, SharpDX.DirectWrite.FontStyle.Normal, 26f);
-            RenderTarget.DrawText(bigText, tfBig,
-                new SharpDX.RectangleF(x + 12f, y + 8f, 110f, 34f), accentBrush);
-            tfBig.Dispose();
-
-            string verdict = !hudInWindow ? "GATE CLOSED" : hudPassed ? "ALLOWED" : "SKIPPED";
-            string subtitle = !hudInWindow
-                ? string.Format("outside {0:00}:{1:00}-{2:00}:{3:00}",
-                    (int)hudWinLo / 60, (int)hudWinLo % 60, (int)hudWinHi / 60, (int)hudWinHi % 60)
-                : string.Format("min {0:F0}", MinProbabilityThreshold);
-
-            var tfMid = new SharpDX.DirectWrite.TextFormat(NinjaTrader.Core.Globals.DirectWriteFactory,
-                "Arial", SharpDX.DirectWrite.FontWeight.Bold, SharpDX.DirectWrite.FontStyle.Normal, 13f);
-            RenderTarget.DrawText(verdict, tfMid,
-                new SharpDX.RectangleF(x + 120f, y + 7f, 175f, 18f), accentBrush);
-            tfMid.Dispose();
-
-            var subBrush = new SharpDX.Direct2D1.SolidColorBrush(RenderTarget, new SharpDX.Color(160, 165, 170, 255));
-            var tfSmall = new SharpDX.DirectWrite.TextFormat(NinjaTrader.Core.Globals.DirectWriteFactory,
-                "Arial", SharpDX.DirectWrite.FontWeight.Normal, SharpDX.DirectWrite.FontStyle.Normal, 11f);
-
-            float gx = x + 120f, gy = y + 28f, gw = 168f, gh = 10f;
-            var track = new SharpDX.Direct2D1.SolidColorBrush(RenderTarget, new SharpDX.Color(38, 38, 43, 255));
-            RenderTarget.FillRectangle(new SharpDX.RectangleF(gx, gy, gw, gh), track);
-            track.Dispose();
-
-            if (!double.IsNaN(hudScore))
+            string head;
+            if (!hudInWindow)
+                head = string.Format("GATE CLOSED   outside {0:00}:{1:00}-{2:00}:{3:00}",
+                    (int)hudWinLo / 60, (int)hudWinLo % 60, (int)hudWinHi / 60, (int)hudWinHi % 60);
+            else
             {
-                float frac = (float)Math.Max(0.0, Math.Min(1.0, hudScore / 100.0));
-                RenderTarget.FillRectangle(new SharpDX.RectangleF(gx, gy, gw * frac, gh), accentBrush);
+                string verdict = hudPassed ? "ALLOWED" : "SKIPPED";
+                string pct = double.IsNaN(hudScore) ? "--" : string.Format("{0:F0}%", hudScore);
+                head = string.Format("Win {0}   {1}   min {2:F0}", pct, verdict, MinProbabilityThreshold);
             }
+            if (DateTime.Now < flashUntil) head = ">> " + head;
 
-            float tfrac = (float)Math.Max(0.0, Math.Min(1.0, MinProbabilityThreshold / 100.0));
-            float tx = gx + gw * tfrac;
-            var tickBrush = new SharpDX.Direct2D1.SolidColorBrush(RenderTarget, new SharpDX.Color(255, 255, 255, 255));
-            RenderTarget.FillRectangle(new SharpDX.RectangleF(tx - 1f, gy - 3f, 2f, gh + 6f), tickBrush);
-            tickBrush.Dispose();
-            RenderTarget.DrawText(string.Format("{0:F0}", MinProbabilityThreshold), tfSmall,
-                new SharpDX.RectangleF(tx - 10f, gy + gh + 1f, 26f, 14f), subBrush);
+            string text = head;
+            string bar = BuildTextBar();
+            if (bar.Length > 0) text += "\n" + bar;
+            string spark = BuildSparkline();
+            if (spark.Length > 0) text += "\n" + spark;
 
-            RenderTarget.DrawText(subtitle, tfSmall,
-                new SharpDX.RectangleF(x + 12f, y + 36f, 105f, 14f), subBrush);
+            Draw.TextFixed(this, "TOAIGaugeHud", text, TextPosition.TopLeft,
+                textBrush, new SimpleFont("Consolas", 15) { Bold = true },
+                Brushes.Black, textBrush, 55);
+        }
 
-            int n = hudHistory.Count;
-            if (n > 1)
+        // 0-100 bar: full blocks up to the score, light shade after, a vertical
+        // bar at the threshold position.
+        private string BuildTextBar()
+        {
+            if (double.IsNaN(hudScore)) return "";
+            const int n = 22;
+            int fill = (int)Math.Round(Math.Max(0.0, Math.Min(100.0, hudScore)) / 100.0 * n);
+            int thr = (int)Math.Round(Math.Max(0.0, Math.Min(100.0, MinProbabilityThreshold)) / 100.0 * n);
+            var sb = new System.Text.StringBuilder(n);
+            for (int i = 0; i < n; i++)
             {
-                float hx = gx, hy = y + h - 9f, barW = gw / 32f;
-                for (int i = 0; i < n; i++)
-                {
-                    double v = hudHistory[i];
-                    float bh = (float)(Math.Max(0.0, Math.Min(1.0, v / 100.0)) * 6.0) + 1f;
-                    var c = v >= MinProbabilityThreshold
-                        ? new SharpDX.Color(46, 200, 90, 200)
-                        : new SharpDX.Color(120, 124, 130, 200);
-                    var hb = new SharpDX.Direct2D1.SolidColorBrush(RenderTarget, c);
-                    RenderTarget.FillRectangle(
-                        new SharpDX.RectangleF(hx + i * barW, hy + (7f - bh), barW * 0.7f, bh), hb);
-                    hb.Dispose();
-                }
+                if (i == thr) sb.Append('│');        // threshold marker
+                else if (i < fill) sb.Append('█');   // full block
+                else sb.Append('░');                 // light shade
             }
+            return sb.ToString();
+        }
 
-            tfSmall.Dispose();
-            subBrush.Dispose();
-            accentBrush.Dispose();
+        // Sparkline of the last scores using 8 block heights.
+        private string BuildSparkline()
+        {
+            if (hudHistory.Count < 2) return "";
+            const string lv = "▁▂▃▄▅▆▇█";
+            int start = Math.Max(0, hudHistory.Count - 24);
+            var sb = new System.Text.StringBuilder();
+            for (int i = start; i < hudHistory.Count; i++)
+            {
+                double v = Math.Max(0.0, Math.Min(100.0, hudHistory[i]));
+                sb.Append(lv[(int)Math.Round(v / 100.0 * 7)]);
+            }
+            return sb.ToString();
         }
     }
 }
