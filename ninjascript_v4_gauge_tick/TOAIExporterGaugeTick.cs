@@ -432,44 +432,65 @@ namespace NinjaTrader.NinjaScript.Indicators
             Brush textBrush = !hudInWindow ? Brushes.Silver
                 : hudPassed ? Brushes.LimeGreen : Brushes.OrangeRed;
 
-            string head;
+            string line1, line2, line3 = "";
             if (!hudInWindow)
-                head = string.Format("GATE CLOSED   outside {0:00}:{1:00}-{2:00}:{3:00}",
+            {
+                line1 = string.Format("  GATE CLOSED   {0:00}:{1:00}-{2:00}:{3:00}",
                     (int)hudWinLo / 60, (int)hudWinLo % 60, (int)hudWinHi / 60, (int)hudWinHi % 60);
+                line2 = "  outside trading window";
+            }
+            else if (double.IsNaN(hudScore))
+            {
+                line1 = "  WIN  --    waiting for score";
+                line2 = "";
+            }
             else
             {
-                string verdict = hudPassed ? "ALLOWED" : "SKIPPED";
-                string pct = double.IsNaN(hudScore) ? "--" : string.Format("{0:F0}%", hudScore);
-                head = string.Format("Win {0}   {1}   min {2:F0}", pct, verdict, MinProbabilityThreshold);
+                int diff = (int)Math.Round(hudScore - MinProbabilityThreshold);
+                line1 = string.Format("  WIN {0,3:F0}%  {1} {2:+0;-0;0}      {3}",
+                    hudScore, TrendArrow(), diff, hudPassed ? "ALLOWED" : "SKIPPED");
+                line2 = "  " + BuildTextBar() + string.Format("  min {0:F0}", MinProbabilityThreshold);
+                line3 = "  " + BuildSparkline();
             }
-            if (DateTime.Now < flashUntil) head = ">> " + head;
+            if (DateTime.Now < flashUntil) line1 += "  *NEW*";
 
-            string text = head;
-            string bar = BuildTextBar();
-            if (bar.Length > 0) text += "\n" + bar;
-            string spark = BuildSparkline();
-            if (spark.Length > 0) text += "\n" + spark;
+            string text = line1;
+            if (line2.Length > 0) text += "\n" + line2;
+            if (line3.Trim().Length > 0) text += "\n" + line3;
 
             Draw.TextFixed(this, "TOAIGaugeHud", text, TextPosition.TopLeft,
-                textBrush, new SimpleFont("Consolas", 15) { Bold = true },
-                Brushes.Black, textBrush, 55);
+                textBrush, new SimpleFont("Consolas", 16) { Bold = true },
+                Brushes.Black, textBrush, 75);
         }
 
-        // 0-100 bar: full blocks up to the score, light shade after, a vertical
-        // bar at the threshold position.
+        // ▲ rising / ▼ falling / ─ flat, from the last two scores.
+        private string TrendArrow()
+        {
+            int n = hudHistory.Count;
+            if (n < 2) return "─";
+            double a = hudHistory[n - 1], b = hudHistory[n - 2];
+            if (a > b + 1.0) return "▲";
+            if (a < b - 1.0) return "▼";
+            return "─";
+        }
+
+        // 0-100 bar in brackets: full blocks up to the score, light shade after,
+        // a vertical marker at the threshold position.
         private string BuildTextBar()
         {
             if (double.IsNaN(hudScore)) return "";
-            const int n = 22;
+            const int n = 20;
             int fill = (int)Math.Round(Math.Max(0.0, Math.Min(100.0, hudScore)) / 100.0 * n);
             int thr = (int)Math.Round(Math.Max(0.0, Math.Min(100.0, MinProbabilityThreshold)) / 100.0 * n);
-            var sb = new System.Text.StringBuilder(n);
+            var sb = new System.Text.StringBuilder(n + 2);
+            sb.Append('[');
             for (int i = 0; i < n; i++)
             {
                 if (i == thr) sb.Append('│');        // threshold marker
                 else if (i < fill) sb.Append('█');   // full block
                 else sb.Append('░');                 // light shade
             }
+            sb.Append(']');
             return sb.ToString();
         }
 
