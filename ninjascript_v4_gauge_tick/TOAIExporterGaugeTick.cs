@@ -85,7 +85,7 @@ namespace NinjaTrader.NinjaScript.Indicators
             }
             else if (State == State.DataLoaded)
             {
-                dataDir = RootDir + @"\" + TOAIExporter.SanitizeName(Instrument.MasterInstrument.Name);
+                dataDir = RootDir + @"\" + SanitizeName(Instrument.MasterInstrument.Name);
                 featuresFile = dataDir + @"\current_features.csv";
                 barDataFile = dataDir + @"\bar_data.csv";
                 scoreFile = dataDir + @"\score.txt";
@@ -103,10 +103,10 @@ namespace NinjaTrader.NinjaScript.Indicators
                     }
                 }
                 catch (Exception ex) { ioError = ex.Message; }
-                scoreMap = TOAIExporter.LoadScoreMap(barScoresFile, ref ioError);
-                MinProbabilityThreshold = TOAIExporter.ReadThreshold(ThresholdFile, MinProbabilityThreshold);
+                scoreMap = LoadScoreMap(barScoresFile, ref ioError);
+                MinProbabilityThreshold = ReadThreshold(ThresholdFile, MinProbabilityThreshold);
                 Lines[0].Value = MinProbabilityThreshold;
-                hudHasWindow = TOAIExporter.TryReadWindow(entryWindowFile, out hudWinLo, out hudWinHi);
+                hudHasWindow = TryReadWindow(entryWindowFile, out hudWinLo, out hudWinHi);
             }
             else if (State == State.Realtime || State == State.Terminated)
             {
@@ -201,6 +201,84 @@ namespace NinjaTrader.NinjaScript.Indicators
                 ioError = "bar_data.csv busy — history flushes on next chart reload";
         }
 
+        // --- Self-contained helpers (this bundle has NO dependency on the
+        // v1 TOAIExporter class). Shared with TOAISignalLabelGaugeTick. ---
+
+        internal static string SanitizeName(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return "UNKNOWN";
+            var sb = new System.Text.StringBuilder(name.Length);
+            foreach (char c in name)
+                sb.Append(char.IsLetterOrDigit(c) ? c : '_');
+            return sb.ToString();
+        }
+
+        internal static double SessionMinutes(DateTime barTime)
+        {
+            return barTime.Hour * 60 + barTime.Minute;
+        }
+
+        internal static double ReadThreshold(string path, double fallback)
+        {
+            try
+            {
+                if (System.IO.File.Exists(path))
+                {
+                    double t;
+                    if (double.TryParse(System.IO.File.ReadAllText(path).Trim(),
+                            System.Globalization.NumberStyles.Float,
+                            System.Globalization.CultureInfo.InvariantCulture, out t)
+                        && t >= 0 && t <= 100)
+                        return t;
+                }
+            }
+            catch { }
+            return fallback;
+        }
+
+        internal static bool TryReadWindow(string path, out double lo, out double hi)
+        {
+            lo = hi = -1;
+            try
+            {
+                if (!System.IO.File.Exists(path)) return false;
+                string[] parts = System.IO.File.ReadAllText(path).Trim().Split('-');
+                if (parts.Length != 2) return false;
+                return double.TryParse(parts[0], System.Globalization.NumberStyles.Float,
+                           System.Globalization.CultureInfo.InvariantCulture, out lo)
+                    && double.TryParse(parts[1], System.Globalization.NumberStyles.Float,
+                           System.Globalization.CultureInfo.InvariantCulture, out hi);
+            }
+            catch { lo = hi = -1; return false; }
+        }
+
+        internal static System.Collections.Generic.Dictionary<DateTime, double>
+            LoadScoreMap(string path, ref string error)
+        {
+            var map = new System.Collections.Generic.Dictionary<DateTime, double>();
+            try
+            {
+                if (!System.IO.File.Exists(path))
+                    return map;
+                foreach (string row in System.IO.File.ReadAllLines(path))
+                {
+                    string[] parts = row.Split(',');
+                    if (parts.Length < 2) continue;
+                    DateTime t;
+                    double s;
+                    if (DateTime.TryParseExact(parts[0], "yyyy-MM-dd HH:mm:ss",
+                            System.Globalization.CultureInfo.InvariantCulture,
+                            System.Globalization.DateTimeStyles.None, out t)
+                        && double.TryParse(parts[1],
+                            System.Globalization.NumberStyles.Float,
+                            System.Globalization.CultureInfo.InvariantCulture, out s))
+                        map[t] = s;
+                }
+            }
+            catch (Exception ex) { error = ex.Message; }
+            return map;
+        }
+
         private string BuildFeatureLine(int ago)
         {
             double close = Close[ago];
@@ -256,9 +334,9 @@ namespace NinjaTrader.NinjaScript.Indicators
             // Once per bar: re-read threshold + window, export the just-closed bar.
             if (IsFirstTickOfBar)
             {
-                MinProbabilityThreshold = TOAIExporter.ReadThreshold(ThresholdFile, MinProbabilityThreshold);
+                MinProbabilityThreshold = ReadThreshold(ThresholdFile, MinProbabilityThreshold);
                 Lines[0].Value = MinProbabilityThreshold;
-                hudHasWindow = TOAIExporter.TryReadWindow(entryWindowFile, out hudWinLo, out hudWinHi);
+                hudHasWindow = TryReadWindow(entryWindowFile, out hudWinLo, out hudWinHi);
 
                 string line = BuildFeatureLine(1);
                 string stamped = Time[1].ToString("yyyy-MM-dd HH:mm:ss") + "," + line + Environment.NewLine;
@@ -278,7 +356,7 @@ namespace NinjaTrader.NinjaScript.Indicators
             // Every tick: entry-window gate (cached window), using current time.
             if (hudHasWindow)
             {
-                double barMinute = TOAIExporter.SessionMinutes(Time[0]);
+                double barMinute = SessionMinutes(Time[0]);
                 if (barMinute < hudWinLo || barMinute > hudWinHi)
                 {
                     MlFilterPassed = false;
