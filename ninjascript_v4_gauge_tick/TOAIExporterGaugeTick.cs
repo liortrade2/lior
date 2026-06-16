@@ -1,0 +1,433 @@
+// TOAIExporterGaugeTick — EXPERIMENTAL v4: the gauge HUD (v3) + the ~2-second
+// tick refresh (v2) combined. This is the "final candidate" variant.
+//
+//   * Calculate.OnEachTick — features still exported once per CLOSED bar, but
+//     score.txt / gate / banner refresh every tick, so within ~2s of a bar
+//     close the gate and HUD catch up (vs a full ~1-bar lag at bar close).
+//   * SharpDX gauge HUD in OnRender — big colored score, a 0-100 gauge bar
+//     with the threshold marked, a mini-history strip, and a flash when the
+//     score crosses up through the threshold.
+//   * Same per-instrument file bridge + MLPass plot for BloodHound.
+//
+// Throttling: threshold.txt and entry_window.txt are read once per bar (not
+// per tick); score.txt is stat-checked each tick and only re-parsed when the
+// watch actually rewrote it.
+//
+// SAFE A/B: separate class. TOAIExporter (v1) is untouched — if this fails to
+// compile, delete the file and recompile (NinjaTrader keeps the last good
+// DLL). Writes the SAME C:\LIOR_ML\<INSTR>\ files, so run ONLY ONE exporter
+// per instrument. Gate with TOAIExporterGaugeTick.MLPass. TEST IN SIM FIRST.
+
+#region Using declarations
+using System;
+using System.Windows.Media;
+using NinjaTrader.Cbi;
+using NinjaTrader.Gui;
+using NinjaTrader.Gui.Chart;
+using NinjaTrader.Gui.Tools;
+using NinjaTrader.NinjaScript;
+using NinjaTrader.NinjaScript.DrawingTools;
+using NinjaTrader.NinjaScript.Indicators;
+#endregion
+
+namespace NinjaTrader.NinjaScript.Indicators
+{
+    public class TOAIExporterGaugeTick : Indicator
+    {
+        private const string RootDir = @"C:\LIOR_ML";
+        private const string ThresholdFile = RootDir + @"\threshold.txt";
+        private string dataDir, featuresFile, barDataFile, scoreFile, barScoresFile,
+            entryWindowFile;
+        private const string Header =
+            "ATR20,EMA9,EMA20,EMA50,RSI14,ADX14,Distance_SwingHigh,Distance_SwingLow,Volume_Ratio,BBand_Width,ZScore";
+
+        [NinjaScriptProperty]
+        public double MinProbabilityThreshold { get; set; } = 55.0;
+
+        [NinjaScriptProperty]
+        public bool ExportBarData { get; set; } = true;
+
+        public bool MlFilterPassed { get; private set; }
+
+        private System.Text.StringBuilder histBuffer;
+        private string ioError;
+        private System.Collections.Generic.HashSet<DateTime> exportedStamps;
+        private System.Collections.Generic.Dictionary<DateTime, double> scoreMap;
+
+        private double hudScore = double.NaN;
+        private bool hudPassed;
+        private bool hudInWindow = true;
+        private double hudWinLo = -1, hudWinHi = -1;
+        private bool hudHasWindow;
+        private bool prevPassed;
+        private DateTime flashUntil = DateTime.MinValue;
+        private DateTime lastScoreStamp = DateTime.MinValue;
+        private double lastScore = double.NaN;
+        private readonly System.Collections.Generic.List<double> hudHistory =
+            new System.Collections.Generic.List<double>();
+
+        protected override void OnStateChange()
+        {
+            if (State == State.SetDefaults)
+            {
+                Name = "TOAIExporterGaugeTick";
+                Calculate = Calculate.OnEachTick;
+                IsOverlay = false;
+
+                AddPlot(new Stroke(Brushes.DodgerBlue, 2), PlotStyle.Line, "ProbOfTrue");
+                AddPlot(new Stroke(Brushes.LimeGreen, 3), PlotStyle.Square, "MLPass");
+                AddLine(Brushes.OrangeRed, 55, "Threshold");
+            }
+            else if (State == State.Configure)
+            {
+                Lines[0].Value = MinProbabilityThreshold;
+                histBuffer = new System.Text.StringBuilder();
+            }
+            else if (State == State.DataLoaded)
+            {
+                dataDir = RootDir + @"\" + TOAIExporter.SanitizeName(Instrument.MasterInstrument.Name);
+                featuresFile = dataDir + @"\current_features.csv";
+                barDataFile = dataDir + @"\bar_data.csv";
+                scoreFile = dataDir + @"\score.txt";
+                barScoresFile = dataDir + @"\bar_scores.csv";
+                entryWindowFile = dataDir + @"\entry_window.txt";
+                try
+                {
+                    System.IO.Directory.CreateDirectory(dataDir);
+                    if (ExportBarData)
+                    {
+                        ArchiveBarDataOnTimeframeChange();
+                        if (!System.IO.File.Exists(barDataFile))
+                            System.IO.File.WriteAllText(barDataFile, "DateTime," + Header + Environment.NewLine);
+                        exportedStamps = LoadExportedStamps(barDataFile, ref ioError);
+                    }
+                }
+                catch (Exception ex) { ioError = ex.Message; }
+                scoreMap = TOAIExporter.LoadScoreMap(barScoresFile, ref ioError);
+                MinProbabilityThreshold = TOAIExporter.ReadThreshold(ThresholdFile, MinProbabilityThreshold);
+                Lines[0].Value = MinProbabilityThreshold;
+                hudHasWindow = TOAIExporter.TryReadWindow(entryWindowFile, out hudWinLo, out hudWinHi);
+            }
+            else if (State == State.Realtime || State == State.Terminated)
+            {
+                FlushHistoryBuffer();
+            }
+        }
+
+        private void ArchiveBarDataOnTimeframeChange()
+        {
+            string tf = BarsPeriod.BarsPeriodType + "-" + BarsPeriod.Value;
+            string metaPath = dataDir + @"\bar_data_tf.txt";
+            string prev = System.IO.File.Exists(metaPath)
+                ? System.IO.File.ReadAllText(metaPath).Trim() : null;
+            if (prev != null && prev != tf && System.IO.File.Exists(barDataFile))
+            {
+                string archive = dataDir + @"\bar_data_" + prev + "_" +
+                    DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".csv";
+                System.IO.File.Move(barDataFile, archive);
+                if (System.IO.File.Exists(barScoresFile))
+                    System.IO.File.Delete(barScoresFile);
+            }
+            if (prev != tf)
+                System.IO.File.WriteAllText(metaPath, tf);
+        }
+
+        private static bool TryWriteShared(string path, string content)
+        {
+            for (int attempt = 0; attempt < 6; attempt++)
+            {
+                try
+                {
+                    using (var fs = new System.IO.FileStream(path, System.IO.FileMode.Create,
+                               System.IO.FileAccess.Write, System.IO.FileShare.ReadWrite))
+                    using (var sw = new System.IO.StreamWriter(fs))
+                        sw.Write(content);
+                    return true;
+                }
+                catch (System.IO.IOException) { System.Threading.Thread.Sleep(20); }
+                catch { return false; }
+            }
+            return false;
+        }
+
+        private static bool TryAppendShared(string path, string content)
+        {
+            for (int attempt = 0; attempt < 6; attempt++)
+            {
+                try
+                {
+                    using (var fs = new System.IO.FileStream(path, System.IO.FileMode.Append,
+                               System.IO.FileAccess.Write, System.IO.FileShare.ReadWrite))
+                    using (var sw = new System.IO.StreamWriter(fs))
+                        sw.Write(content);
+                    return true;
+                }
+                catch (System.IO.IOException) { System.Threading.Thread.Sleep(20); }
+                catch { return false; }
+            }
+            return false;
+        }
+
+        private static System.Collections.Generic.HashSet<DateTime>
+            LoadExportedStamps(string path, ref string error)
+        {
+            var set = new System.Collections.Generic.HashSet<DateTime>();
+            try
+            {
+                if (!System.IO.File.Exists(path))
+                    return set;
+                foreach (string row in System.IO.File.ReadLines(path))
+                {
+                    int comma = row.IndexOf(',');
+                    if (comma <= 0) continue;
+                    DateTime t;
+                    if (DateTime.TryParseExact(row.Substring(0, comma),
+                            "yyyy-MM-dd HH:mm:ss",
+                            System.Globalization.CultureInfo.InvariantCulture,
+                            System.Globalization.DateTimeStyles.None, out t))
+                        set.Add(t);
+                }
+            }
+            catch (Exception ex) { error = ex.Message; }
+            return set;
+        }
+
+        private void FlushHistoryBuffer()
+        {
+            if (histBuffer == null || histBuffer.Length == 0) return;
+            if (TryAppendShared(barDataFile, histBuffer.ToString()))
+                histBuffer.Clear();
+            else
+                ioError = "bar_data.csv busy — history flushes on next chart reload";
+        }
+
+        private string BuildFeatureLine(int ago)
+        {
+            double close = Close[ago];
+            double swingHigh = Swing(5).SwingHigh[ago];
+            double swingLow = Swing(5).SwingLow[ago];
+            double volumeSma = SMA(Volume, 20)[ago];
+            double bbWidth = Bollinger(2, 20).Upper[ago] - Bollinger(2, 20).Lower[ago];
+            double sma20 = SMA(20)[ago];
+            double stdDev20 = StdDev(20)[ago];
+            double zScore = stdDev20 > 0 ? (close - sma20) / stdDev20 : 0;
+            return string.Format(
+                "{0},{1},{2},{3},{4},{5},{6},{7},{8},{9},{10}",
+                ATR(20)[ago],
+                EMA(9)[ago], EMA(20)[ago], EMA(50)[ago],
+                RSI(14, 3)[ago],
+                ADX(14)[ago],
+                swingHigh > 0 ? swingHigh - close : 0,
+                swingLow > 0 ? close - swingLow : 0,
+                volumeSma > 0 ? Volume[ago] / volumeSma : 1,
+                bbWidth,
+                zScore);
+        }
+
+        private void PushHistory(double v)
+        {
+            hudHistory.Add(v);
+            if (hudHistory.Count > 32) hudHistory.RemoveAt(0);
+        }
+
+        protected override void OnBarUpdate()
+        {
+            if (CurrentBar < 20) return;
+
+            // Historical: one update per bar, [0] = closed bar.
+            if (State == State.Historical)
+            {
+                string hline = BuildFeatureLine(0);
+                string hstamped = Time[0].ToString("yyyy-MM-dd HH:mm:ss") + "," + hline + Environment.NewLine;
+                if (ExportBarData && exportedStamps != null && exportedStamps.Add(Time[0]))
+                    histBuffer.Append(hstamped);
+                double histScore;
+                if (scoreMap != null && scoreMap.TryGetValue(Time[0], out histScore))
+                {
+                    Values[0][0] = histScore;
+                    PushHistory(histScore);
+                }
+                Values[1][0] = 1;
+                return;
+            }
+
+            // --- Realtime, OnEachTick ---
+
+            // Once per bar: re-read threshold + window, export the just-closed bar.
+            if (IsFirstTickOfBar)
+            {
+                MinProbabilityThreshold = TOAIExporter.ReadThreshold(ThresholdFile, MinProbabilityThreshold);
+                Lines[0].Value = MinProbabilityThreshold;
+                hudHasWindow = TOAIExporter.TryReadWindow(entryWindowFile, out hudWinLo, out hudWinHi);
+
+                string line = BuildFeatureLine(1);
+                string stamped = Time[1].ToString("yyyy-MM-dd HH:mm:ss") + "," + line + Environment.NewLine;
+                if (ExportBarData && (exportedStamps == null || !exportedStamps.Contains(Time[1])))
+                {
+                    if (TryAppendShared(barDataFile, stamped))
+                    {
+                        if (exportedStamps != null) exportedStamps.Add(Time[1]);
+                    }
+                    else
+                        ioError = "bar_data.csv busy — retried, will refresh next bar";
+                }
+                if (!TryWriteShared(featuresFile, Header + Environment.NewLine + line + Environment.NewLine))
+                    ioError = "current_features.csv busy — retried, will refresh next bar";
+            }
+
+            // Every tick: entry-window gate (cached window), using current time.
+            if (hudHasWindow)
+            {
+                double barMinute = TOAIExporter.SessionMinutes(Time[0]);
+                if (barMinute < hudWinLo || barMinute > hudWinHi)
+                {
+                    MlFilterPassed = false;
+                    Values[1][0] = 0;
+                    hudScore = double.NaN;
+                    hudInWindow = false;
+                    hudPassed = false;
+                    prevPassed = false;
+                    return;
+                }
+            }
+            hudInWindow = true;
+
+            // Score for the last CLOSED bar ([1]). Precomputed map first, else
+            // score.txt re-parsed only when its timestamp changed (one new
+            // value per bar -> one history point).
+            double probOfTrue = double.NaN;
+            double mapped;
+            if (scoreMap != null && scoreMap.TryGetValue(Time[1], out mapped))
+                probOfTrue = mapped;
+            else
+            {
+                try
+                {
+                    if (System.IO.File.Exists(scoreFile))
+                    {
+                        DateTime st = System.IO.File.GetLastWriteTimeUtc(scoreFile);
+                        if (st != lastScoreStamp)
+                        {
+                            lastScoreStamp = st;
+                            string sc = System.IO.File.ReadAllText(scoreFile).Trim();
+                            double parsed;
+                            lastScore = double.TryParse(sc,
+                                System.Globalization.NumberStyles.Float,
+                                System.Globalization.CultureInfo.InvariantCulture, out parsed)
+                                ? parsed : double.NaN;
+                            if (!double.IsNaN(lastScore))
+                            {
+                                Values[0][0] = lastScore;
+                                PushHistory(lastScore);
+                            }
+                        }
+                        probOfTrue = lastScore;
+                    }
+                }
+                catch (Exception ex) { ioError = ex.Message; }
+            }
+
+            MlFilterPassed = !double.IsNaN(probOfTrue) && probOfTrue >= MinProbabilityThreshold;
+            Values[1][0] = MlFilterPassed ? 1 : 0;
+
+            hudScore = probOfTrue;
+            hudPassed = MlFilterPassed;
+            if (MlFilterPassed && !prevPassed) flashUntil = DateTime.Now.AddSeconds(2);
+            prevPassed = MlFilterPassed;
+        }
+
+        protected override void OnRender(NinjaTrader.Gui.Chart.ChartControl chartControl,
+                                         NinjaTrader.Gui.Chart.ChartScale chartScale)
+        {
+            base.OnRender(chartControl, chartScale);
+            if (RenderTarget == null || ChartPanel == null) return;
+
+            float x = (float)ChartPanel.X + 10f;
+            float y = (float)ChartPanel.Y + 8f;
+            float w = 300f, h = 56f;
+
+            SharpDX.Color accent =
+                !hudInWindow ? new SharpDX.Color(120, 144, 156, 255) :
+                hudPassed ? new SharpDX.Color(46, 200, 90, 255) :
+                            new SharpDX.Color(255, 82, 54, 255);
+
+            var bgBrush = new SharpDX.Direct2D1.SolidColorBrush(RenderTarget, new SharpDX.Color(11, 11, 13, 220));
+            var panel = new SharpDX.Direct2D1.RoundedRectangle
+            { Rect = new SharpDX.RectangleF(x, y, w, h), RadiusX = 6f, RadiusY = 6f };
+            RenderTarget.FillRoundedRectangle(panel, bgBrush);
+            bgBrush.Dispose();
+
+            var accentBrush = new SharpDX.Direct2D1.SolidColorBrush(RenderTarget, accent);
+
+            if (DateTime.Now < flashUntil)
+                RenderTarget.DrawRoundedRectangle(panel, accentBrush, 2.5f);
+
+            string bigText = double.IsNaN(hudScore) ? "—" : string.Format("{0:F0}%", hudScore);
+            var tfBig = new SharpDX.DirectWrite.TextFormat(NinjaTrader.Core.Globals.DirectWriteFactory,
+                "Arial", SharpDX.DirectWrite.FontWeight.Bold, SharpDX.DirectWrite.FontStyle.Normal, 26f);
+            RenderTarget.DrawText(bigText, tfBig,
+                new SharpDX.RectangleF(x + 12f, y + 8f, 110f, 34f), accentBrush);
+            tfBig.Dispose();
+
+            string verdict = !hudInWindow ? "GATE CLOSED" : hudPassed ? "ALLOWED" : "SKIPPED";
+            string subtitle = !hudInWindow
+                ? string.Format("outside {0:00}:{1:00}-{2:00}:{3:00}",
+                    (int)hudWinLo / 60, (int)hudWinLo % 60, (int)hudWinHi / 60, (int)hudWinHi % 60)
+                : string.Format("min {0:F0}", MinProbabilityThreshold);
+
+            var tfMid = new SharpDX.DirectWrite.TextFormat(NinjaTrader.Core.Globals.DirectWriteFactory,
+                "Arial", SharpDX.DirectWrite.FontWeight.Bold, SharpDX.DirectWrite.FontStyle.Normal, 13f);
+            RenderTarget.DrawText(verdict, tfMid,
+                new SharpDX.RectangleF(x + 120f, y + 7f, 175f, 18f), accentBrush);
+            tfMid.Dispose();
+
+            var subBrush = new SharpDX.Direct2D1.SolidColorBrush(RenderTarget, new SharpDX.Color(160, 165, 170, 255));
+            var tfSmall = new SharpDX.DirectWrite.TextFormat(NinjaTrader.Core.Globals.DirectWriteFactory,
+                "Arial", SharpDX.DirectWrite.FontWeight.Normal, SharpDX.DirectWrite.FontStyle.Normal, 11f);
+
+            float gx = x + 120f, gy = y + 28f, gw = 168f, gh = 10f;
+            var track = new SharpDX.Direct2D1.SolidColorBrush(RenderTarget, new SharpDX.Color(38, 38, 43, 255));
+            RenderTarget.FillRectangle(new SharpDX.RectangleF(gx, gy, gw, gh), track);
+            track.Dispose();
+
+            if (!double.IsNaN(hudScore))
+            {
+                float frac = (float)Math.Max(0.0, Math.Min(1.0, hudScore / 100.0));
+                RenderTarget.FillRectangle(new SharpDX.RectangleF(gx, gy, gw * frac, gh), accentBrush);
+            }
+
+            float tfrac = (float)Math.Max(0.0, Math.Min(1.0, MinProbabilityThreshold / 100.0));
+            float tx = gx + gw * tfrac;
+            var tickBrush = new SharpDX.Direct2D1.SolidColorBrush(RenderTarget, new SharpDX.Color(255, 255, 255, 255));
+            RenderTarget.FillRectangle(new SharpDX.RectangleF(tx - 1f, gy - 3f, 2f, gh + 6f), tickBrush);
+            tickBrush.Dispose();
+            RenderTarget.DrawText(string.Format("{0:F0}", MinProbabilityThreshold), tfSmall,
+                new SharpDX.RectangleF(tx - 10f, gy + gh + 1f, 26f, 14f), subBrush);
+
+            RenderTarget.DrawText(subtitle, tfSmall,
+                new SharpDX.RectangleF(x + 12f, y + 36f, 105f, 14f), subBrush);
+
+            int n = hudHistory.Count;
+            if (n > 1)
+            {
+                float hx = gx, hy = y + h - 9f, barW = gw / 32f;
+                for (int i = 0; i < n; i++)
+                {
+                    double v = hudHistory[i];
+                    float bh = (float)(Math.Max(0.0, Math.Min(1.0, v / 100.0)) * 6.0) + 1f;
+                    var c = v >= MinProbabilityThreshold
+                        ? new SharpDX.Color(46, 200, 90, 200)
+                        : new SharpDX.Color(120, 124, 130, 200);
+                    var hb = new SharpDX.Direct2D1.SolidColorBrush(RenderTarget, c);
+                    RenderTarget.FillRectangle(
+                        new SharpDX.RectangleF(hx + i * barW, hy + (7f - bh), barW * 0.7f, bh), hb);
+                    hb.Dispose();
+                }
+            }
+
+            tfSmall.Dispose();
+            subBrush.Dispose();
+            accentBrush.Dispose();
+        }
+    }
+}
