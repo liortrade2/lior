@@ -54,7 +54,7 @@ class ToaiPanel(tk.Tk):
         bktest = ttk.LabelFrame(root, text="Backtest data (from Strategy Analyzer)", padding=8)
         bktest.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(0, 8))
         bktest.columnconfigure(0, weight=1)
-        info = ttk.Label(bktest, text="1. Strategy Analyzer → Trades tab → right-click → Export → save with ANY name\n   (the strategy's name is best) into:  " + str(config.DATA_DIR) +
+        info = ttk.Label(bktest, text="1. Strategy Analyzer → Trades tab → right-click → Export → save with ANY name\n   (the strategy's name is best) into:  " + str(config.DATA_ROOT) +
                          "\n2. Load chart with TOAIExporter (ExportBarData=true) to build bar_data.csv\n3. Click below — the newest export is found automatically, merged & trained",
                          wraplength=600, justify=tk.LEFT)
         info.grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 6))
@@ -154,29 +154,30 @@ class ToaiPanel(tk.Tk):
     def _browse_training(self):
         path = filedialog.askopenfilename(
             title="Select training CSV",
-            initialdir=str(config.DATA_DIR),
+            initialdir=str(config.DATA_ROOT),
             filetypes=[("CSV files", "*.csv"), ("All files", "*.*")])
         if path:
             self.training_file.set(path)
 
     def _open_data_dir(self):
         import subprocess, sys
-        config.DATA_DIR.mkdir(parents=True, exist_ok=True)
+        # Exports are dropped in the ROOT; the watch routes them per instrument.
+        config.DATA_ROOT.mkdir(parents=True, exist_ok=True)
         if sys.platform == "win32":
-            subprocess.Popen(["explorer", str(config.DATA_DIR)])
+            subprocess.Popen(["explorer", str(config.DATA_ROOT)])
         elif sys.platform == "darwin":
-            subprocess.Popen(["open", str(config.DATA_DIR)])
+            subprocess.Popen(["open", str(config.DATA_ROOT)])
         else:
-            subprocess.Popen(["xdg-open", str(config.DATA_DIR)])
+            subprocess.Popen(["xdg-open", str(config.DATA_ROOT)])
 
     def _refresh_from_backtest(self):
-        from .build_and_train import find_trades_export
+        from .build_and_train import find_trades_export, _export_instrument
         strategy = self.strategy.get() or None
         trades_file = find_trades_export(strategy)
         if trades_file is None:
             messagebox.showwarning(
                 "TOAI",
-                f"No trades export found in:\n\n{config.DATA_DIR}\n\n"
+                f"No trades export found in:\n\n{config.DATA_ROOT}\n\n"
                 f"Steps:\n"
                 f"1. In NinjaTrader: Strategy Analyzer → run backtest\n"
                 f"2. Trades tab → right-click → Export\n"
@@ -185,11 +186,16 @@ class ToaiPanel(tk.Tk):
                 f"Then click Refresh again.")
             self._open_data_dir()
             return
+        # Route to the export's instrument folder (multi-instrument layout)
+        # so the bar_data check looks at C:\LIOR_ML\<INSTR>\, not the root.
+        instrument = _export_instrument(trades_file)
+        if instrument:
+            config.set_instrument(instrument)
         if not config.BAR_DATA_FILE.exists():
             messagebox.showwarning(
                 "TOAI",
                 f"bar_data.csv not found at:\n\n{config.BAR_DATA_FILE}\n\n"
-                f"Load a chart with TOAIExporter indicator (ExportBarData=true)\n"
+                f"Load a {instrument or ''} chart with TOAIExporter (ExportBarData=true)\n"
                 f"covering the same period as your backtest, then click Refresh.")
             return
         self.refresh_btn.configure(state=tk.DISABLED)
