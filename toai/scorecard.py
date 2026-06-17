@@ -26,6 +26,7 @@ fighting the background watch over the shared instrument state.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -67,6 +68,7 @@ class Group:
     expectancy: float
     total_pnl: float
     rr: float | None
+    profit_factor: float | None   # gross win / gross loss
 
 
 @dataclass
@@ -94,6 +96,11 @@ class Scorecard:
         """Dollars the gate kept off the table by skipping (negative total =
         the gate dodged a net loss)."""
         return self.skip.total_pnl
+
+    @property
+    def selectivity(self) -> float:
+        """Share of trades the gate lets through (%). Low = picky filter."""
+        return self.allow.n / self.all.n * 100 if self.all.n else 0.0
 
 
 # --------------------------------------------------------------------------- #
@@ -183,7 +190,10 @@ def _stats(pnl: np.ndarray):
 
 def _group(label: str, pnl: np.ndarray) -> Group:
     win_rate, expectancy, total, _, _, rr = _stats(pnl)
-    return Group(label, len(pnl), win_rate, expectancy, total, rr)
+    gross_win = float(pnl[pnl > 0].sum())
+    gross_loss = float(-pnl[pnl <= 0].sum())
+    pf = (gross_win / gross_loss) if gross_loss > 0 else None
+    return Group(label, len(pnl), win_rate, expectancy, total, rr, pf)
 
 
 def _buckets(scored: pd.DataFrame) -> list[Bucket]:
@@ -201,10 +211,24 @@ def _buckets(scored: pd.DataFrame) -> list[Bucket]:
     return out
 
 
-def compute_scorecard(training_file, threshold: float,
-                      instrument: str | None = None) -> Scorecard | None:
-    """Build the scorecard from a training_data.csv. Returns None if the file
-    is missing/empty or lacks both winning and losing trades."""
+@dataclass
+class ScoredTrades:
+    """The expensive, threshold-independent part: every trade's out-of-fold
+    score paired with its PnL. Cached by file mtime so reopening the scorecard
+    or moving the threshold is instant — only a fresh retrain reruns it."""
+    scored: pd.DataFrame     # columns Score, PnL
+    out_of_sample: bool
+    date_from: str
+    date_to: str
+
+
+# str(path) -> (mtime, ScoredTrades|None). Walk-forward over thousands of
+# trades is a few seconds; the threshold-dependent aggregation below is
+# microseconds, so we cache only the scoring and rebuild the rest each call.
+_score_cache: dict[str, tuple[float, "ScoredTrades | None"]] = {}
+
+
+def _score_trades_uncached(training_file) -> ScoredTrades | None:
     try:
         df = pd.read_csv(training_file)
     except (FileNotFoundError, OSError, pd.errors.EmptyDataError):
@@ -229,7 +253,35 @@ def compute_scorecard(training_file, threshold: float,
         scored = _in_sample_scores(df)
     if scored is None:
         return None
+    return ScoredTrades(scored, out_of_sample, date_from, date_to)
 
+
+def score_trades(training_file, use_cache: bool = True) -> ScoredTrades | None:
+    """Out-of-fold scores+PnL for a training file, cached by mtime."""
+    p = Path(training_file)
+    try:
+        mtime = p.stat().st_mtime
+    except OSError:
+        return None
+    key = str(p)
+    if use_cache:
+        hit = _score_cache.get(key)
+        if hit and hit[0] == mtime:
+            return hit[1]
+    res = _score_trades_uncached(training_file)
+    _score_cache[key] = (mtime, res)
+    return res
+
+
+def compute_scorecard(training_file, threshold: float,
+                      instrument: str | None = None,
+                      use_cache: bool = True) -> Scorecard | None:
+    """Build the scorecard from a training_data.csv. Returns None if the file
+    is missing/empty or lacks both winning and losing trades."""
+    st = score_trades(training_file, use_cache=use_cache)
+    if st is None:
+        return None
+    scored = st.scored
     pnl_all = scored["PnL"].to_numpy()
     allow = scored.loc[scored["Score"] >= threshold, "PnL"].to_numpy()
     skip = scored.loc[scored["Score"] < threshold, "PnL"].to_numpy()
@@ -238,9 +290,9 @@ def compute_scorecard(training_file, threshold: float,
         instrument=instrument,
         n_trades=len(scored),
         threshold=threshold,
-        out_of_sample=out_of_sample,
-        date_from=date_from,
-        date_to=date_to,
+        out_of_sample=st.out_of_sample,
+        date_from=st.date_from,
+        date_to=st.date_to,
         buckets=_buckets(scored),
         all=_group("All trades (no filter)", pnl_all),
         allow=_group(f"ALLOW  (score >= {threshold:g})", allow),
@@ -248,12 +300,14 @@ def compute_scorecard(training_file, threshold: float,
     )
 
 
-def scorecard_for_instrument(instrument: str | None) -> Scorecard | None:
+def scorecard_for_instrument(instrument: str | None,
+                             use_cache: bool = True) -> Scorecard | None:
     """Convenience wrapper: locate an instrument's training_data.csv under the
     data root and the shared threshold, without mutating global config."""
     inst_dir = config.DATA_ROOT / instrument if instrument else config.DATA_ROOT
     return compute_scorecard(inst_dir / "training_data.csv",
-                             config.get_threshold(), instrument)
+                             config.get_threshold(), instrument,
+                             use_cache=use_cache)
 
 
 # --------------------------------------------------------------------------- #
@@ -287,17 +341,20 @@ def format_scorecard(sc: Scorecard) -> str:
     lines += [
         "",
         "  Gate decision (at the live threshold):",
-        "   Group                 |  N   | Win%  | Expectancy | Total $",
-        "  -----------------------+------+-------+------------+----------",
+        "   Group                 |  N   | Win%  | Expectancy | Total $   | PF",
+        "  -----------------------+------+-------+------------+-----------+------",
     ]
     for g in (sc.all, sc.allow, sc.skip):
+        pf = f"{g.profit_factor:.2f}" if g.profit_factor is not None else "  -"
         lines.append(
             f"   {g.label:<21} | {g.n:>4} | {g.win_rate:4.0f}% | "
-            f"{g.expectancy:>+8.2f}   | {g.total_pnl:>+8.0f}")
+            f"{g.expectancy:>+8.2f}   | {g.total_pnl:>+8.0f}  | {pf}")
     lines += [
         "",
         f"  Edge added per taken trade: {sc.edge_per_trade:+.2f} $  "
         f"(ALLOW {sc.allow.expectancy:+.2f} vs all {sc.all.expectancy:+.2f})",
+        f"  Selectivity: gate takes {sc.selectivity:.0f}% of trades "
+        f"({sc.allow.n} of {sc.all.n})",
         f"  PnL the gate skipped:       {sc.pnl_avoided:+.0f} $  "
         f"over {sc.skip.n} blocked trades",
         "=" * 66,

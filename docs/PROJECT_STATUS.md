@@ -40,12 +40,16 @@
 - **Control Panel** (`toai/control_panel.py`, `TOAI_Control.bat`) — **מחליף את TOAI_Watch**.
   מריץ את ה-watch ברקע + כרטיס לכל כלי: badge חי (ALLOW/SKIP/CLOSED) + רדיו לבחירת וריאנט + מחיקה +
   כפתור **📊 Scorecard**.
-- **Live Scorecard** (`toai/scorecard.py`) — ✅ roadmap #1+#2. לכל כלי: win-rate **+ תוחלת ($/עסקה) + R:R**
-  לפי דלי-ציון, וסיכום **ALLOW מול SKIP** בסף החי = ה-edge בכסף שהפילטר מוסיף. **out-of-sample**
-  (walk-forward, לא in-sample) — מאותו מקור-אמת של train.walk_forward, רק שנושא את ה-PnL.
-  מקור: `training_data.csv` (העסקאות האמיתיות) → מתעדכן לבד בכל אימון. בפאנל (popup, רץ בת'רד נפרד)
-  וגם ב-`main.py` אופציה 9 (טקסט). **תוצאה MES**: ALLOW 78% win / +4.25$ לעסקה מול 58% / -0.61$ ל-SKIP;
-  edge ‎+2.33$ לכל עסקה נלקחת. ✔ הפילטר עובד בכסף (out-of-sample).
+- **Live Scorecard** (`toai/scorecard.py`) — ✅ roadmap #1+#2. לכל כלי: win-rate **+ תוחלת ($/עסקה) + R:R
+  + Profit Factor + Selectivity**, וסיכום **ALLOW מול SKIP** בסף החי = ה-edge בכסף שהפילטר מוסיף.
+  **out-of-sample** (walk-forward, לא in-sample) — מאותו מקור-אמת של train.walk_forward, רק שנושא PnL.
+  מקור: `training_data.csv` → מתעדכן לבד בכל אימון. **תוצאה MES**: ALLOW 78% win / +4.25$ / PF 2.48 מול
+  SKIP 58% / -0.61$ / PF 0.89; edge ‎+2.33$ לעסקה, לוקח 52% מהעסקאות. ✔ הפילטר עובד בכסף (out-of-sample).
+  - **בפאנל**: כפתור 📊 פותח popup (חלון אחד לכל כלי — לחיצה חוזרת מקדימה+מרעננת) עם **גרף עמודות מתפצל**
+    של תוחלת לפי דלי (ירוק/אדום מקו-אפס, פס ALLOW מודגש), טבלת ALLOW/SKIP, וכותרת edge. רץ בת'רד-עובד
+    (caching לפי mtime — פתיחה חוזרת/שינוי סף = מיידי). כל כרטיס-כלי מציג שורת **"filter edge"** חיה
+    (מחושבת ברקע) — רואים אם הפילטר עושה כסף בלי לפתוח כלום.
+  - **CLI**: `main.py` אופציה 9 (טקסט).
 - **ניהול וריאנטים** (`toai/variants.py`, main.py אופציה 8) — כל אימון נשמר כווריאנט; החלפה בלי אימון מחדש.
 - **אימון אוטומטי של כל ה-exports** — ה-watch סורק את כל הקבצים בשורש ומאמן כל חדש (לכל הכלים יחד).
 

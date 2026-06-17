@@ -86,6 +86,11 @@ class ScorecardWindow(tk.Toplevel):
         self.status.pack(anchor="w", pady=20)
         self._load()
 
+    def refresh(self):
+        """Recompute and redraw (used by the Refresh button and when the panel
+        re-raises an already-open window)."""
+        self._load()
+
     def _load(self):
         for w in self.body.winfo_children():
             w.destroy()
@@ -144,46 +149,31 @@ class ScorecardWindow(tk.Toplevel):
                       text="⚠ Optimistic — collect 150+ trades for the honest "
                            "walk-forward scorecard.").pack(anchor="w")
 
-        # --- bucket table -------------------------------------------------
-        ttk.Label(self.body, text="By score bucket",
+        # --- expectancy-by-bucket chart ----------------------------------
+        ttk.Label(self.body, text="Expectancy by score bucket  ($ per trade)",
                   font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(6, 2))
-        cols = ("score", "n", "win", "exp", "total", "rr")
-        tree = ttk.Treeview(self.body, columns=cols, show="headings", height=len(sc.buckets))
-        for c, txt, w in (("score", "Score", 80), ("n", "Trades", 70),
-                          ("win", "Win %", 70), ("exp", "Expectancy $", 110),
-                          ("total", "Total $", 100), ("rr", "R:R", 60)):
-            tree.heading(c, text=txt)
-            tree.column(c, width=w, anchor="center")
-        tree.tag_configure("pos", foreground=GREEN)
-        tree.tag_configure("neg", foreground=RED)
-        tree.tag_configure("allow", background="#eaf6ec")
-        for b in sc.buckets:
-            inband = b.lo >= sc.threshold        # bucket the gate lets through
-            tags = ("pos" if b.expectancy >= 0 else "neg",) + (("allow",) if inband else ())
-            rr = f"{b.rr:.2f}" if b.rr is not None else "—"
-            tree.insert("", "end", tags=tags, values=(
-                f"{b.lo:g}-{b.hi:g}", b.n, f"{b.win_rate:.0f}%",
-                _money(b.expectancy), f"{b.total_pnl:+,.0f}", rr))
-        tree.pack(fill="x")
+        self._bucket_chart(self.body, sc).pack(fill="x")
         ttk.Label(self.body, font=("Consolas", 8), foreground=MUTED,
-                  text="Green rows = scores at/above the threshold (the gate "
-                       "lets these through).").pack(anchor="w", pady=(2, 8))
+                  text="Green band = scores ≥ threshold (the gate lets these "
+                       "through). Bars are $ expectancy; zero line in the "
+                       "middle.").pack(anchor="w", pady=(2, 8))
 
         # --- gate decision summary ---------------------------------------
         ttk.Label(self.body, text="Gate decision at the live threshold",
                   font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(6, 2))
         grid = ttk.Frame(self.body)
         grid.pack(fill="x")
-        hdr = ("", "Trades", "Win %", "Expectancy $", "Total $")
+        hdr = ("", "Trades", "Win %", "Expectancy $", "Total $", "PF")
         for j, h in enumerate(hdr):
             ttk.Label(grid, text=h, font=("Segoe UI", 9, "bold"),
-                      width=18 if j == 0 else 12,
+                      width=18 if j == 0 else 11,
                       anchor="w" if j == 0 else "e").grid(row=0, column=j, padx=4, sticky="w")
         for i, (g, color) in enumerate(((sc.all, MUTED), (sc.allow, GREEN), (sc.skip, RED)), 1):
             ttk.Label(grid, text=g.label, foreground=color,
                       font=("Segoe UI", 9, "bold")).grid(row=i, column=0, padx=4, sticky="w")
+            pf = f"{g.profit_factor:.2f}" if g.profit_factor is not None else "—"
             for j, v in enumerate((str(g.n), f"{g.win_rate:.0f}%",
-                                   _money(g.expectancy), f"{g.total_pnl:+,.0f}"), 1):
+                                   _money(g.expectancy), f"{g.total_pnl:+,.0f}", pf), 1):
                 ttk.Label(grid, text=v, font=("Consolas", 9),
                           anchor="e").grid(row=i, column=j, padx=4, sticky="e")
 
@@ -195,11 +185,50 @@ class ScorecardWindow(tk.Toplevel):
         ttk.Label(box, foreground=verdict_color, font=("Segoe UI", 12, "bold"),
                   text=f"Edge added per taken trade:  {edge:+.2f} $").pack(anchor="w")
         ttk.Label(box, foreground=MUTED, font=("Segoe UI", 9), wraplength=620,
-                  text=f"ALLOW expectancy {sc.allow.expectancy:+.2f} $ vs trading "
-                       f"everything {sc.all.expectancy:+.2f} $. The gate skipped "
-                       f"{sc.skip.n} trades worth {sc.skip.total_pnl:+,.0f} $ in total"
+                  text=f"ALLOW expectancy {sc.allow.expectancy:+.2f} $ "
+                       f"(PF {sc.allow.profit_factor:.2f}) vs trading everything "
+                       f"{sc.all.expectancy:+.2f} $ (PF {sc.all.profit_factor:.2f}). "
+                       f"The gate takes {sc.selectivity:.0f}% of trades and skipped "
+                       f"{sc.skip.n} worth {sc.skip.total_pnl:+,.0f} $"
                        f"{' (a net loss it dodged)' if sc.skip.total_pnl < 0 else ''}."
                   ).pack(anchor="w", pady=(2, 0))
+
+    # ---------- chart ----------
+    def _bucket_chart(self, parent, sc):
+        """A diverging horizontal bar chart of $ expectancy per score bucket:
+        bars grow right (green) for positive expectancy, left (red) for
+        negative, from a central zero line. The ALLOW band (scores at/above the
+        threshold) is shaded so the gate's cut is visible at a glance."""
+        buckets = sc.buckets
+        row_h, top_pad = 30, 10
+        W = 640
+        H = top_pad * 2 + row_h * len(buckets)
+        label_w, val_w = 56, 168
+        x0, x1 = label_w, W - val_w
+        mid = (x0 + x1) / 2
+        span = (x1 - x0) / 2 - 6
+        maxabs = max((abs(b.expectancy) for b in buckets), default=1.0) or 1.0
+
+        c = tk.Canvas(parent, width=W, height=H, highlightthickness=0,
+                      bg=self.cget("bg"))
+        # ALLOW band behind everything.
+        for i, b in enumerate(buckets):
+            if b.lo >= sc.threshold:
+                y = top_pad + i * row_h
+                c.create_rectangle(0, y, W, y + row_h, fill="#eaf6ec", width=0)
+        # Zero line.
+        c.create_line(mid, top_pad - 2, mid, H - top_pad + 2, fill="#b0b0b0")
+        for i, b in enumerate(buckets):
+            yc = top_pad + i * row_h + row_h / 2
+            bar = (b.expectancy / maxabs) * span
+            color = GREEN if b.expectancy >= 0 else RED
+            c.create_rectangle(mid, yc - 8, mid + bar, yc + 8, fill=color, width=0)
+            c.create_text(4, yc, anchor="w", font=("Consolas", 9),
+                          text=f"{b.lo:g}-{b.hi:g}")
+            c.create_text(x1 + 6, yc, anchor="w", font=("Consolas", 8),
+                          fill="#333333",
+                          text=f"{b.expectancy:+.2f}$  {b.win_rate:.0f}%  n={b.n}")
+        return c
 
 
 class ControlPanel(tk.Tk):
@@ -215,6 +244,11 @@ class ControlPanel(tk.Tk):
         self.watch_thread = None
         self.badges = {}        # inst -> ttk.Label
         self.radio_vars = {}    # inst -> tk.StringVar
+        self.scorecards = {}    # inst -> ScorecardWindow (one per instrument)
+        self._edge_labels = {}  # inst -> ttk.Label (the at-a-glance edge line)
+        self._edge_text = {}    # inst -> (mtime, text, color)  — last computed
+        self._edge_inflight = set()
+        self._edge_result = {}  # inst -> (mtime, text, color)  — worker -> _tick
         self._sig = None
 
         self._build()
@@ -249,9 +283,15 @@ class ControlPanel(tk.Tk):
         self.canvas.configure(yscrollcommand=sb.set)
         self.canvas.pack(side="left", fill="both", expand=True)
         sb.pack(side="right", fill="y")
-        self.canvas.bind_all("<MouseWheel>",
-                             lambda e: self.canvas.yview_scroll(int(-e.delta / 120), "units"))
+        # Grab the wheel only while the pointer is over the panel body, so a
+        # scorecard popup (or any other window) keeps its own scrolling.
+        self.canvas.bind("<Enter>", lambda e: self.canvas.bind_all(
+            "<MouseWheel>", self._on_wheel))
+        self.canvas.bind("<Leave>", lambda e: self.canvas.unbind_all("<MouseWheel>"))
         self._rebuild()
+
+    def _on_wheel(self, e):
+        self.canvas.yview_scroll(int(-e.delta / 120), "units")
 
     def _signature(self):
         sig = []
@@ -313,6 +353,56 @@ class ControlPanel(tk.Tk):
             ttk.Button(row, text="✕", width=3,
                        command=lambda i=inst, sl=s, n=info["name"]: self._delete(i, sl, n)).pack(side="right")
 
+        # At-a-glance "does the filter make money?" footer — computed in the
+        # background (cached by training_data mtime) and filled in by _tick.
+        edge = ttk.Label(card, foreground=MUTED, font=("Consolas", 8),
+                         text="filter edge: computing…")
+        edge.pack(anchor="w", pady=(4, 0))
+        self._edge_labels[inst] = edge
+        self._refresh_edge_label(inst)
+
+    # ---------- scorecard edge (background) ----------
+    def _training_mtime(self, inst):
+        try:
+            return (_inst_dir(inst) / "training_data.csv").stat().st_mtime
+        except OSError:
+            return None
+
+    def _refresh_edge_label(self, inst):
+        lbl = self._edge_labels.get(inst)
+        if lbl is None:
+            return
+        mtime = self._training_mtime(inst)
+        cached = self._edge_text.get(inst)
+        if cached and cached[0] == mtime:                 # same data -> instant
+            lbl.config(text=cached[1], foreground=cached[2])
+            return
+        lbl.config(text="filter edge: computing…", foreground=MUTED)
+        if inst not in self._edge_inflight:
+            self._edge_inflight.add(inst)
+            threading.Thread(target=self._compute_edge, args=(inst, mtime),
+                             daemon=True).start()
+
+    def _compute_edge(self, inst, mtime):
+        # Worker thread: compute (uses the mtime-keyed cache in scorecard) and
+        # stash a display string; _tick paints it on the UI thread.
+        try:
+            sc = scorecard.scorecard_for_instrument(inst)
+            if sc is None:
+                text, color = "filter edge: not enough trades yet", MUTED
+            else:
+                mark = "✓" if sc.edge_per_trade > 0 else "✗"
+                pf = (f" PF{sc.allow.profit_factor:.2f}"
+                      if sc.allow.profit_factor is not None else "")
+                tag = "" if sc.out_of_sample else "  (in-sample)"
+                text = (f"{mark} filter edge {sc.edge_per_trade:+.2f}$/trade  ·  "
+                        f"ALLOW {sc.allow.win_rate:.0f}%{pf}  ·  "
+                        f"takes {sc.selectivity:.0f}%{tag}")
+                color = GREEN if sc.edge_per_trade > 0 else RED
+        except Exception:
+            text, color = "filter edge: n/a", MUTED
+        self._edge_result[inst] = (mtime, text, color)
+
     # ---------- actions ----------
     def _activate(self, inst, s):
         # Hand the switch to the watch thread (it owns the global config and
@@ -333,7 +423,16 @@ class ControlPanel(tk.Tk):
             messagebox.showwarning("TOAI", "Threshold must be a number 0-100.")
 
     def _scorecard(self, inst):
-        ScorecardWindow(self, inst)
+        # One scorecard window per instrument: if it's already open, raise and
+        # refresh it instead of stacking duplicates.
+        win = self.scorecards.get(inst)
+        if win is not None and win.winfo_exists():
+            win.deiconify()
+            win.lift()
+            win.focus_force()
+            win.refresh()
+            return
+        self.scorecards[inst] = ScorecardWindow(self, inst)
 
     def _toggle_watch(self):
         if self.watch_thread and self.watch_thread.is_alive():
@@ -360,6 +459,14 @@ class ControlPanel(tk.Tk):
             score, verdict, color = _status(inst)
             text = f"{score:.0f}%  {verdict}" if score is not None else verdict
             badge.config(text=text, foreground=color)
+        # Paint any background edge results that have landed.
+        for inst in list(self._edge_result.keys()):
+            mtime, text, color = self._edge_result.pop(inst)
+            self._edge_text[inst] = (mtime, text, color)
+            self._edge_inflight.discard(inst)
+            lbl = self._edge_labels.get(inst)
+            if lbl is not None and lbl.winfo_exists():
+                lbl.config(text=text, foreground=color)
         try:
             if self._signature() != self._sig:
                 self._rebuild()
