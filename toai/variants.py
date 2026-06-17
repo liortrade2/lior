@@ -64,6 +64,16 @@ def save_variant(export_name: str, inst_dir=None):
         return None
     s = slug(export_name)
     shutil.copy2(model, _models_dir(inst_dir) / f"{s}.pkl")
+    # Snapshot the training data alongside the model so a later side-by-side
+    # comparison can score each variant on its OWN trades (training_data.csv is
+    # overwritten by the next train, so without this only the latest export
+    # would have $ metrics).
+    train_csv = _dir(inst_dir) / "training_data.csv"
+    if train_csv.exists():
+        try:
+            shutil.copy2(train_csv, _models_dir(inst_dir) / f"{s}_training.csv")
+        except OSError:
+            pass
     b = joblib.load(model)
     wf = b.get("walk_forward") or []
     reg = _load_registry(inst_dir)
@@ -96,6 +106,39 @@ def active_variant(inst_dir=None):
         if v.get("active"):
             return k, v
     return None, None
+
+
+def variant_training_file(s: str, inst_dir=None):
+    """The per-variant training_data snapshot, or None. Variants saved before
+    snapshotting existed won't have one (except the active variant, whose data
+    is still the live training_data.csv — resolved by the caller)."""
+    f = _models_dir(inst_dir) / f"{s}_training.csv"
+    return f if f.exists() else None
+
+
+def comparison_data(inst_dir=None):
+    """Per-variant metrics for a side-by-side comparison: PMV, walk-forward AUC
+    (mean + folds), and the stored walk-forward win-rate-by-threshold table.
+    All from saved metadata — no retraining."""
+    rows = []
+    for s, info in list_variants(inst_dir):
+        wf_report = None
+        try:
+            b = joblib.load(_models_dir(inst_dir) / f"{s}.pkl")
+            wf_report = b.get("wf_threshold_report")
+        except Exception:
+            pass
+        rows.append({
+            "slug": s,
+            "name": info.get("name", s),
+            "saved": info.get("saved"),
+            "active": bool(info.get("active")),
+            "pmv": info.get("pmv"),
+            "wf_mean": info.get("wf_mean"),
+            "wf": info.get("wf"),
+            "wf_threshold_report": wf_report,
+        })
+    return rows
 
 
 def select_variant(s: str, inst_dir=None, rescore: bool = True) -> bool:

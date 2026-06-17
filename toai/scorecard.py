@@ -127,7 +127,8 @@ def walk_forward_scores(df: pd.DataFrame, features=None, n_folds: int = 4):
     if fold == 0:
         return None
 
-    out_score, out_pnl = [], []
+    dt = (df["DateTime"].to_numpy() if "DateTime" in df.columns else None)
+    out_score, out_pnl, out_dt = [], [], []
     for i in range(1, n_folds + 1):
         end = fold * (i + 1) if i < n_folds else n
         X_tr, y_tr = X[:fold * i], y[:fold * i]
@@ -142,11 +143,17 @@ def walk_forward_scores(df: pd.DataFrame, features=None, n_folds: int = 4):
         prob = model.predict_proba(scaler.transform(X_te))[:, 1]
         out_score.append(prob * 100)
         out_pnl.append(pnl_te)
+        if dt is not None:
+            out_dt.append(dt[fold * i:end])
 
     if not out_score:
         return None
-    return pd.DataFrame({"Score": np.concatenate(out_score),
-                         "PnL": np.concatenate(out_pnl)})
+    # Rows stay in chronological order (folds are sequential time blocks), so a
+    # cumsum over them is a valid equity curve.
+    data = {"Score": np.concatenate(out_score), "PnL": np.concatenate(out_pnl)}
+    if out_dt:
+        data["DateTime"] = np.concatenate(out_dt)
+    return pd.DataFrame(data)
 
 
 def _in_sample_scores(df: pd.DataFrame, features=None):
@@ -165,7 +172,10 @@ def _in_sample_scores(df: pd.DataFrame, features=None):
         n_estimators=200, max_depth=3, learning_rate=0.05)
     model.fit(scaler.transform(X), y)
     prob = model.predict_proba(scaler.transform(X))[:, 1]
-    return pd.DataFrame({"Score": prob * 100, "PnL": pnl})
+    data = {"Score": prob * 100, "PnL": pnl}
+    if "DateTime" in df.columns:
+        data["DateTime"] = df["DateTime"].to_numpy()
+    return pd.DataFrame(data)
 
 
 # --------------------------------------------------------------------------- #
@@ -308,6 +318,67 @@ def scorecard_for_instrument(instrument: str | None,
     return compute_scorecard(inst_dir / "training_data.csv",
                              config.get_threshold(), instrument,
                              use_cache=use_cache)
+
+
+def training_file_for(instrument: str | None):
+    inst_dir = config.DATA_ROOT / instrument if instrument else config.DATA_ROOT
+    return inst_dir / "training_data.csv"
+
+
+# --------------------------------------------------------------------------- #
+#  Threshold optimisation (roadmap #3) and equity curve (#  the curve view)
+# --------------------------------------------------------------------------- #
+def threshold_sweep(scored: pd.DataFrame, lo: int = 50, hi: int = 95,
+                    step: int = 1) -> list[dict]:
+    """ALLOW-side stats at every candidate threshold, from the out-of-fold
+    scores. The basis for picking an optimal gate instead of a fixed 70."""
+    pnl = scored["PnL"].to_numpy()
+    score = scored["Score"].to_numpy()
+    n_total = len(pnl)
+    rows = []
+    for t in range(lo, hi + 1, step):
+        allow = pnl[score >= t]
+        if len(allow) == 0:
+            continue
+        rows.append({
+            "threshold": float(t),
+            "n": int(len(allow)),
+            "expectancy": float(allow.mean()),
+            "total": float(allow.sum()),
+            "win_rate": float((allow > 0).mean() * 100),
+            "selectivity": len(allow) / n_total * 100 if n_total else 0.0,
+        })
+    return rows
+
+
+def recommend_threshold(scored: pd.DataFrame, min_trades_frac: float = 0.10):
+    """Pick the gate that maximises per-trade expectancy while still taking a
+    meaningful share of trades (>= min_trades_frac, so we don't crown a
+    razor-thin high-score bucket). Also returns the max-total-$ threshold for
+    reference. None when the sweep is empty."""
+    sweep = threshold_sweep(scored)
+    if not sweep:
+        return None
+    n_total = len(scored)
+    floor = max(20, int(n_total * min_trades_frac))
+    eligible = [r for r in sweep if r["n"] >= floor] or sweep
+    return {
+        "by_expectancy": max(eligible, key=lambda r: r["expectancy"]),
+        "by_total": max(sweep, key=lambda r: r["total"]),
+        "sweep": sweep,
+        "floor": floor,
+    }
+
+
+def equity_curves(scored: pd.DataFrame, threshold: float):
+    """Cumulative PnL over the trades in time order: (all_trades, allow_only).
+    The ALLOW curve only steps at trades that pass the gate, so the gap between
+    the two lines is the money the filter added (or saved)."""
+    pnl = scored["PnL"].to_numpy()
+    score = scored["Score"].to_numpy()
+    all_cum = np.cumsum(pnl)
+    allow_cum = np.cumsum(np.where(score >= threshold, pnl, 0.0))
+    return all_cum, allow_cum
 
 
 # --------------------------------------------------------------------------- #
