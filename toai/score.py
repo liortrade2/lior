@@ -4,6 +4,7 @@ NinjaScript writes current_features.csv on each bar close and reads score.txt
 back to allow/skip the signal (research doc §6, steps 3-4).
 """
 import os
+import shutil
 import time
 
 import joblib
@@ -155,6 +156,17 @@ def watch(interval_seconds: float = 2.0, stop_event=None, reload_event=None,
                     missing_model.clear()
                     print("-" * 46)
                     print(f"Trained from {p.name}.")
+                    # Auto-archive the processed export so it never retrains and
+                    # the root stays clean. The variant is permanent — switch
+                    # strategies in the panel, no reprocessing. Re-dropping a new
+                    # export later trains it again.
+                    try:
+                        dest = config.DATA_ROOT / "_trained"
+                        dest.mkdir(exist_ok=True)
+                        shutil.move(str(p), str(dest / p.name))
+                        print(f"Archived {p.name} -> _trained/ (won't retrain).")
+                    except OSError as e:
+                        print(f"(couldn't archive {p.name}: {e})")
                     print("Reload that instrument's chart to refresh labels.\n")
             except Exception as e:
                 print(f"Auto-retrain failed for {p.name}: {e}\n")
