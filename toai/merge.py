@@ -58,7 +58,10 @@ def merge_backtest(trades_path, bar_data_path=None, output_path=None,
     trades = trades.dropna(subset=["EntryTime", "PnL"])
 
     bars = pd.read_csv(bar_data_path)
-    bars["DateTime"] = pd.to_datetime(bars["DateTime"])
+    # errors="coerce" + dropna: a half-written final row (the live exporter may
+    # be mid-append) parses to NaT and is dropped instead of crashing.
+    bars["DateTime"] = pd.to_datetime(bars["DateTime"], errors="coerce")
+    bars = bars.dropna(subset=["DateTime"])
     # Chart reloads append duplicate bars — keep the latest row per bar.
     bars = (bars.drop_duplicates(subset="DateTime", keep="last")
                 .sort_values("DateTime"))

@@ -83,6 +83,10 @@ namespace NinjaTrader.NinjaScript.Indicators
 
         private bool IsWriter()
         {
+            // A reader copy (ExportBarData=false, e.g. BloodHound's solver
+            // instance) never becomes the writer — so it can't archive or
+            // overwrite the chart's bar_data.
+            if (!ExportBarData) return false;
             if (dataDir == null) return true;
             lock (writerLock)
             {
@@ -158,6 +162,12 @@ namespace NinjaTrader.NinjaScript.Indicators
 
         private void ArchiveBarDataOnTimeframeChange()
         {
+            // Only the single writer manages bar_data and its tf marker. This
+            // stops a SECOND instance (BloodHound's solver copy, which may run
+            // on a different/custom bars period) from "archiving" — i.e.
+            // wiping — the chart's real bar_data on every reload (the ping-pong
+            // that left only a few days of history).
+            if (!IsWriter()) return;
             string tf = BarsPeriod.BarsPeriodType + "-" + BarsPeriod.Value;
             string metaPath = dataDir + @"\bar_data_tf.txt";
             string prev = System.IO.File.Exists(metaPath)
