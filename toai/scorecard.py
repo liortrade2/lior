@@ -83,6 +83,7 @@ class Scorecard:
     all: Group
     allow: Group             # score >= threshold (the gate lets these through)
     skip: Group              # score <  threshold (the gate blocks these)
+    realized: bool = False    # True = actual fills from the journal (not backtest)
 
     @property
     def edge_per_trade(self) -> float:
@@ -283,6 +284,33 @@ def score_trades(training_file, use_cache: bool = True) -> ScoredTrades | None:
     return res
 
 
+def scorecard_from_scored(scored: pd.DataFrame, threshold: float,
+                          instrument: str | None = None,
+                          out_of_sample: bool = True, realized: bool = False,
+                          date_from: str = "", date_to: str = "") -> Scorecard | None:
+    """Assemble a Scorecard from an already-scored set of trades (columns Score,
+    PnL). Shared by the walk-forward path and the realized journal, so both get
+    the same chart/table/edge view."""
+    if scored is None or len(scored) == 0:
+        return None
+    pnl_all = scored["PnL"].to_numpy()
+    allow = scored.loc[scored["Score"] >= threshold, "PnL"].to_numpy()
+    skip = scored.loc[scored["Score"] < threshold, "PnL"].to_numpy()
+    return Scorecard(
+        instrument=instrument,
+        n_trades=len(scored),
+        threshold=threshold,
+        out_of_sample=out_of_sample,
+        date_from=date_from,
+        date_to=date_to,
+        buckets=_buckets(scored),
+        all=_group("All trades (no filter)", pnl_all),
+        allow=_group(f"ALLOW  (score >= {threshold:g})", allow),
+        skip=_group(f"SKIP   (score < {threshold:g})", skip),
+        realized=realized,
+    )
+
+
 def compute_scorecard(training_file, threshold: float,
                       instrument: str | None = None,
                       use_cache: bool = True) -> Scorecard | None:
@@ -291,23 +319,9 @@ def compute_scorecard(training_file, threshold: float,
     st = score_trades(training_file, use_cache=use_cache)
     if st is None:
         return None
-    scored = st.scored
-    pnl_all = scored["PnL"].to_numpy()
-    allow = scored.loc[scored["Score"] >= threshold, "PnL"].to_numpy()
-    skip = scored.loc[scored["Score"] < threshold, "PnL"].to_numpy()
-
-    return Scorecard(
-        instrument=instrument,
-        n_trades=len(scored),
-        threshold=threshold,
-        out_of_sample=st.out_of_sample,
-        date_from=st.date_from,
-        date_to=st.date_to,
-        buckets=_buckets(scored),
-        all=_group("All trades (no filter)", pnl_all),
-        allow=_group(f"ALLOW  (score >= {threshold:g})", allow),
-        skip=_group(f"SKIP   (score < {threshold:g})", skip),
-    )
+    return scorecard_from_scored(st.scored, threshold, instrument,
+                                 out_of_sample=st.out_of_sample,
+                                 date_from=st.date_from, date_to=st.date_to)
 
 
 def scorecard_for_instrument(instrument: str | None,
@@ -390,8 +404,9 @@ def _rr(rr) -> str:
 
 def format_scorecard(sc: Scorecard) -> str:
     head = sc.instrument or "root"
-    basis = ("walk-forward, out-of-sample"
-             if sc.out_of_sample else "IN-SAMPLE (too few trades — optimistic!)")
+    basis = ("realized — actual fills (journal)" if sc.realized
+             else "walk-forward, out-of-sample" if sc.out_of_sample
+             else "IN-SAMPLE (too few trades — optimistic!)")
     lines = [
         "=" * 66,
         f"  LIVE SCORECARD - {head}",
@@ -430,7 +445,7 @@ def format_scorecard(sc: Scorecard) -> str:
         f"over {sc.skip.n} blocked trades",
         "=" * 66,
     ]
-    if not sc.out_of_sample:
+    if not sc.out_of_sample and not sc.realized:
         lines.append("  [!] In-sample numbers are optimistic - collect "
                      "150+ trades for the honest walk-forward scorecard.")
     return "\n".join(lines)

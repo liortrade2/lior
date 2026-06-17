@@ -111,6 +111,8 @@ def watch(interval_seconds: float = 2.0, stop_event=None, reload_event=None,
     print(f"Auto-retrain: drop one or more Strategy Analyzer exports into "
           f"{config.DATA_ROOT} — each retrains its instrument by itself.")
     bundles, feat_mtimes, missing_model = {}, {}, set()
+    exec_mtimes = {}
+    from . import journal
     while True:
         if stop_event is not None and stop_event.is_set():
             return
@@ -187,4 +189,25 @@ def watch(interval_seconds: float = 2.0, stop_event=None, reload_event=None,
             verdict = "ALLOW" if score >= threshold else "SKIP"
             label = f"[{name}] " if name else ""
             print(f"{label}ProbOfTrue: {score:5.1f}  ->  {verdict}  (min {threshold:g})")
+
+        # Realized side of the loop: when live fills land in <inst>/executions.csv
+        # (appended by NinjaTrader / the executions logger), record each against
+        # the score the gate gave it. Deduped, so re-reads are free.
+        for name in _watch_targets():
+            config.set_instrument(name)
+            ep = config.DATA_DIR / "executions.csv"
+            try:
+                emt = ep.stat().st_mtime
+            except OSError:
+                continue
+            if emt == exec_mtimes.get(name) or time.time() - emt <= 5:
+                continue
+            exec_mtimes[name] = emt
+            try:
+                added = journal.record_export(ep, source="live",
+                                              inst_dir=config.MODEL_FILE.parent)
+                if added:
+                    print(f"[{name or 'root'}] journal: +{added} live fills logged")
+            except Exception as e:
+                print(f"[{name or 'root'}] journal (live) skipped: {e}")
         time.sleep(interval_seconds)

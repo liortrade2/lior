@@ -22,8 +22,9 @@ MENU = """
   6. Build training file from backtest (trades export + bar_data.csv)
   7. Score history (bar_scores.csv — retroactive + Playback display)
   8. Strategy variants (list / switch the active model)
-  9. Live scorecard (win-rate + expectancy by score, vs real PnL) ← NEW
-  10. Exit
+  9. Live scorecard (win-rate + expectancy by score, vs real PnL)
+  10. Trade journal (REALIZED results from actual fills) ← NEW
+  11. Exit
 """
 
 
@@ -107,10 +108,29 @@ def show_scorecard():
         print(scorecard.format_scorecard(sc))
 
 
+def show_journal():
+    from toai import journal, scorecard
+    insts = config.list_instruments() or [None]
+    for inst in insts:
+        s = journal.summary_for(inst)
+        if not s:
+            print(f"\n{inst or 'root'}: journal empty — live fills appear here as "
+                  "the watch logs trades from executions.csv.")
+            continue
+        srcs = "  ".join(f"{k}:{v}" for k, v in s["by_source"].items())
+        print(f"\n{inst or 'root'} journal: {s['total']} trades  ({srcs})")
+        sc = journal.live_scorecard_for(inst)   # realized (live) only
+        if sc is None:
+            print("  (no live fills yet — backtest rows are tracked but the "
+                  "realized scorecard needs actual fills)")
+            continue
+        print(scorecard.format_scorecard(sc))
+
+
 def main():
     while True:
         print(MENU.format(data_dir=config.DATA_DIR))
-        choice = input("Select option [1-10]: ").strip()
+        choice = input("Select option [1-11]: ").strip()
 
         if choice == "1":
             from toai.simulate import write_sample_files
@@ -176,6 +196,9 @@ def main():
             show_scorecard()
 
         elif choice == "10":
+            show_journal()
+
+        elif choice == "11":
             sys.exit(0)
 
         else:

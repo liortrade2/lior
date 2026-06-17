@@ -37,10 +37,12 @@ def _find_col(columns, *required_words, exclude=()):
     return None
 
 
-def merge_backtest(trades_path, bar_data_path=None, output_path=None,
-                   tolerance_minutes: int = 30, verbose: bool = True):
+def match_trades(trades_path, bar_data_path=None, tolerance_minutes: int = 30):
+    """Match each trade's entry to the most recent closed bar and return the
+    feature rows + PnL — WITHOUT writing any file. Shared by merge_backtest
+    (which trains) and the journal (which logs realized fills). Returns
+    (out_df, n_trades, n_unmatched)."""
     bar_data_path = bar_data_path or config.BAR_DATA_FILE
-    output_path = output_path or config.TRAINING_FILE
 
     trades = pd.read_csv(trades_path)
     entry_time_col = _find_col(trades.columns, "entry", "time")
@@ -80,12 +82,21 @@ def merge_backtest(trades_path, bar_data_path=None, output_path=None,
 
     out = matched[["EntryTime", "Direction"] + config.FEATURES + ["PnL"]].copy()
     out = out.rename(columns={"EntryTime": "DateTime"})
+    return out, len(trades), unmatched
+
+
+def merge_backtest(trades_path, bar_data_path=None, output_path=None,
+                   tolerance_minutes: int = 30, verbose: bool = True):
+    output_path = output_path or config.TRAINING_FILE
+
+    out, n_trades, unmatched = match_trades(trades_path, bar_data_path,
+                                            tolerance_minutes)
     config.DATA_DIR.mkdir(parents=True, exist_ok=True)
     out.to_csv(output_path, index=False)
 
     if verbose:
-        wins = (out["PnL"] > 0).mean() * 100
-        print(f"Trades in export:        {len(trades)}")
+        wins = (out["PnL"] > 0).mean() * 100 if len(out) else 0.0
+        print(f"Trades in export:        {n_trades}")
         print(f"Matched to bar data:     {len(out)}")
         if unmatched:
             print(f"Unmatched (no bar within {tolerance_minutes}min): {unmatched}")

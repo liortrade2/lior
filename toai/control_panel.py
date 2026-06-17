@@ -18,7 +18,7 @@ import tkinter as tk
 from datetime import datetime
 from tkinter import messagebox, ttk
 
-from . import config, scorecard, variants
+from . import config, journal, scorecard, variants
 from .score import watch
 
 GREEN, RED, MUTED = "#1b8a3a", "#c0392b", "#8a8a8a"
@@ -73,6 +73,7 @@ class ScorecardWindow(tk.Toplevel):
         self._path = scorecard.training_file_for(inst)
         self._preview = tk.IntVar(value=int(round(config.get_threshold())))
         self._slider_job = None
+        self._realized = False     # False = predicted (walk-forward); True = journal
         self.title(f"Live Scorecard — {inst}")
         self.geometry("720x860")
         self.minsize(600, 520)
@@ -83,6 +84,9 @@ class ScorecardWindow(tk.Toplevel):
                   font=("Segoe UI", 14, "bold")).pack(side="left")
         self.refresh_btn = ttk.Button(top, text="Refresh", command=self._load)
         self.refresh_btn.pack(side="right")
+        self.mode_btn = ttk.Button(top, text="Show: Realized fills",
+                                   command=self._toggle_mode)
+        self.mode_btn.pack(side="right", padx=(0, 8))
 
         # Scrollable body — the card is taller than one screen now.
         outer = ttk.Frame(self)
@@ -111,11 +115,18 @@ class ScorecardWindow(tk.Toplevel):
         re-raises an already-open window)."""
         self._load()
 
+    def _toggle_mode(self):
+        self._realized = not self._realized
+        self.mode_btn.config(text="Show: Walk-forward" if self._realized
+                             else "Show: Realized fills")
+        self._load()
+
     def _load(self):
         for w in self.body.winfo_children():
             w.destroy()
-        self.status = ttk.Label(self.body, foreground=MUTED,
-                                text="Computing walk-forward scorecard…")
+        msg = ("Loading realized fills…" if self._realized
+               else "Computing walk-forward scorecard…")
+        self.status = ttk.Label(self.body, foreground=MUTED, text=msg)
         self.status.pack(anchor="w", pady=20)
         self.refresh_btn.config(state="disabled")
         self._result = None
@@ -126,7 +137,10 @@ class ScorecardWindow(tk.Toplevel):
         # Worker thread: NEVER touch widgets here (Tkinter is single-threaded).
         # Stash the result; the main thread picks it up in _poll.
         try:
-            self._result = (scorecard.scorecard_for_instrument(self.inst), None)
+            if self._realized:
+                self._result = (journal.live_scorecard_for(self.inst), None)
+            else:
+                self._result = (scorecard.scorecard_for_instrument(self.inst), None)
         except Exception as e:        # never let a worker crash take the panel
             self._result = (None, str(e))
 
@@ -150,28 +164,39 @@ class ScorecardWindow(tk.Toplevel):
                       text=f"Could not compute scorecard:\n{err}").pack(anchor="w", pady=20)
             return
         if sc is None:
+            msg = ("No live fills journalled yet — they appear here as the watch "
+                   "logs executed trades from <instrument>\\executions.csv. Trade "
+                   "in Sim/live and they accumulate." if self._realized else
+                   "No scorecard yet — this instrument needs a trained model with "
+                   "both winning and losing trades in training_data.csv. Train a "
+                   "backtest export first.")
             ttk.Label(self.body, foreground=MUTED, wraplength=620,
-                      text="No scorecard yet — this instrument needs a trained "
-                           "model with both winning and losing trades in "
-                           "training_data.csv. Train a backtest export first.").pack(
-                anchor="w", pady=20)
+                      text=msg).pack(anchor="w", pady=20)
             return
 
-        # Cache the out-of-fold scores + threshold recommendation so the slider
-        # and equity curve recompute instantly (cache hit on the scoring).
-        st = scorecard.score_trades(self._path)
-        self._scored = st.scored if st else None
+        # Cache the scored trades + threshold recommendation so the slider and
+        # equity curve recompute instantly. Source depends on the mode: the
+        # journal's realized fills, or the walk-forward out-of-fold scores.
+        if self._realized:
+            self._scored = journal.live_scored_for(self.inst)
+        else:
+            st = scorecard.score_trades(self._path)
+            self._scored = st.scored if st else None
         self._rec = (scorecard.recommend_threshold(self._scored)
                      if self._scored is not None else None)
 
-        basis = ("walk-forward · out-of-sample (honest)" if sc.out_of_sample
-                 else "IN-SAMPLE — optimistic, < 150 trades")
+        if sc.realized:
+            basis = "realized · actual fills (journal)"
+        elif sc.out_of_sample:
+            basis = "walk-forward · out-of-sample (honest)"
+        else:
+            basis = "IN-SAMPLE — optimistic, < 150 trades"
         meta = ttk.Frame(self.body)
         meta.pack(fill="x", pady=(4, 6))
         ttk.Label(meta, font=("Consolas", 9), foreground=MUTED,
                   text=f"{sc.n_trades} trades   {sc.date_from} → {sc.date_to}   ·   "
                        f"{basis}").pack(anchor="w")
-        if not sc.out_of_sample:
+        if not sc.out_of_sample and not sc.realized:
             ttk.Label(meta, foreground=RED, font=("Segoe UI", 9, "bold"),
                       text="⚠ Optimistic — collect 150+ trades for the honest "
                            "walk-forward scorecard.").pack(anchor="w")
@@ -236,7 +261,14 @@ class ScorecardWindow(tk.Toplevel):
             return
         for w in self.content.winfo_children():
             w.destroy()
-        sc = scorecard.compute_scorecard(self._path, t, self.inst)  # cache hit
+        # Re-bucket at the preview threshold from the cached scored set — for
+        # realized fills straight from the journal, otherwise the walk-forward
+        # scores (cache hit, instant either way).
+        if self._realized:
+            sc = scorecard.scorecard_from_scored(self._scored, t, self.inst,
+                                                 out_of_sample=False, realized=True)
+        else:
+            sc = scorecard.compute_scorecard(self._path, t, self.inst)
         if sc is None:
             return
 
@@ -271,15 +303,16 @@ class ScorecardWindow(tk.Toplevel):
                           anchor="e").grid(row=i, column=j, padx=4, sticky="e")
 
         edge = sc.edge_per_trade
+        pf_a = f" (PF {sc.allow.profit_factor:.2f})" if sc.allow.profit_factor else ""
+        pf_all = f" (PF {sc.all.profit_factor:.2f})" if sc.all.profit_factor else ""
         box = ttk.Frame(self.content, padding=10)
         box.pack(fill="x", pady=(12, 0))
         ttk.Label(box, foreground=(GREEN if edge > 0 else RED),
                   font=("Segoe UI", 12, "bold"),
                   text=f"Edge added per taken trade:  {edge:+.2f} $").pack(anchor="w")
         ttk.Label(box, foreground=MUTED, font=("Segoe UI", 9), wraplength=640,
-                  text=f"ALLOW expectancy {sc.allow.expectancy:+.2f} $ "
-                       f"(PF {sc.allow.profit_factor:.2f}) vs trading everything "
-                       f"{sc.all.expectancy:+.2f} $ (PF {sc.all.profit_factor:.2f}). "
+                  text=f"ALLOW expectancy {sc.allow.expectancy:+.2f} ${pf_a} vs "
+                       f"trading everything {sc.all.expectancy:+.2f} ${pf_all}. "
                        f"The gate takes {sc.selectivity:.0f}% of trades and skipped "
                        f"{sc.skip.n} worth {sc.skip.total_pnl:+,.0f} $"
                        f"{' (a net loss it dodged)' if sc.skip.total_pnl < 0 else ''}."

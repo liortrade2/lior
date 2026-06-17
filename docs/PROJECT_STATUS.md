@@ -58,6 +58,13 @@
 - **סף אופטימלי** (✅ roadmap #3, כבסיס) — `scorecard.recommend_threshold()` + `threshold_sweep()` סורקים
   את כל הספים על ה-out-of-fold ובוחרים מקסימום-תוחלת / מקסימום-total. כרגע **מייעץ** (הסף החי גלובלי-משותף
   לכל הגרפים בארכיטקטורה הנוכחית). "Apply to live" כותב לסף הגלובלי.
+- **יומן עסקאות TOAI-native** (`toai/journal.py`) — הצד ה**מומש** של הלולאה הסגורה. במקום יומן חיצוני
+  (Edgewonk/TradeZella/TradesViz — כולם כלים אנושיים שדוחפים לענן, וסגירת-לולאה תלויה ב-API בתשלום),
+  בנינו יומן משלנו: ה-watch קורא `<כלי>/executions.csv` (fills חיים) ורושם כל עסקה מול הציון שקיבלה
+  → `<כלי>/journal.csv` (append-only, dedup, שורד אימונים). תצוגת ה-Scorecard ממוחזרת: כפתור **Show:
+  Realized fills ↔ Walk-forward** בחלון ה-📊 מציג **חזוי (backtest) מול מומש (fills אמיתיים)** באותו גרף —
+  המבחן האמיתי אם ה-edge מתממש בכסף. גם `main.py` אופציה 10. **חסר בצד ליאור**: מי כותב את `executions.csv`
+  (ראה §6) — NinjaScript executions-logger או ייצוא Trade Performance ידני.
 - **ניהול וריאנטים** (`toai/variants.py`, main.py אופציה 8) — כל אימון נשמר כווריאנט; החלפה בלי אימון מחדש.
 - **אימון אוטומטי של כל ה-exports** — ה-watch סורק את כל הקבצים בשורש ומאמן כל חדש (לכל הכלים יחד).
 
@@ -92,6 +99,10 @@
    לעולם לא writer). בלי זה ה-bar_data בסיכון.
 2. **להפעיל מחדש את ה-Control Panel** — לטעון את מודל וריאנט 1.
 3. לטעון מחדש את הגרף.
+4. **(חדש) להזרים `executions.csv` ליומן** — כדי שתצוגת ה-Realized תתמלא, צריך ש-NinjaTrader
+   יכתוב את ה-fills החיים ל-`C:\LIOR_ML\<כלי>\executions.csv` (עמודות כמו ייצוא Trades: Entry time,
+   Market pos., Profit…). אפשרויות: (א) NinjaScript executions-logger (לבנות — מקביל ל-connector של
+   TradesViz/CrossTrade); (ב) ייצוא Trade Performance ידני לאותו שם. ה-watch כבר קולט וקורא אוטומטית.
 
 ## 7. 🔥 לקחים/מלכודות (אל תחזור עליהן!)
 - **bar_data ping-pong**: עותק BloodHound רץ על period לא-סטנדרטי (12345) ו"מארכב"=מוחק
