@@ -19,9 +19,12 @@ from .score import load_model
 
 def _compact_bar_data(deduped: pd.DataFrame, raw_rows: int):
     """Rewrite bar_data.csv without the duplicate rows that chart reloads
-    append. Skipped while NinjaTrader might still be writing the file."""
+    append. Skipped only if NinjaTrader wrote it in the last few seconds —
+    a 60s guard never clears on a 1-min chart (a bar lands every 60s), so
+    we use a short window: the dedupe+atomic-replace takes <1s and the next
+    bar is ~tens of seconds away, so no concurrent append is lost."""
     try:
-        if time.time() - config.BAR_DATA_FILE.stat().st_mtime < 60:
+        if time.time() - config.BAR_DATA_FILE.stat().st_mtime < 15:
             return
         tmp = config.BAR_DATA_FILE.with_suffix(".tmp")
         deduped.to_csv(tmp, index=False)
