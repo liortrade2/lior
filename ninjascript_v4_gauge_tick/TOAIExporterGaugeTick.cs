@@ -81,12 +81,28 @@ namespace NinjaTrader.NinjaScript.Indicators
         private static readonly System.Collections.Generic.Dictionary<string, TOAIExporterGaugeTick> writers
             = new System.Collections.Generic.Dictionary<string, TOAIExporterGaugeTick>();
 
+        // Standard time/price bar types only. BloodHound's solver copy runs on
+        // a custom bars period (its type prints as e.g. "12345", not "Minute"),
+        // so this automatically rules it out as a writer — no manual
+        // ExportBarData=false needed on it.
+        private bool IsStandardPeriod()
+        {
+            switch (BarsPeriod.BarsPeriodType.ToString())
+            {
+                case "Minute": case "Second": case "Tick": case "Day":
+                case "Week": case "Month": case "Year": case "Volume":
+                case "Range": return true;
+                default: return false;
+            }
+        }
+
         private bool IsWriter()
         {
-            // A reader copy (ExportBarData=false, e.g. BloodHound's solver
-            // instance) never becomes the writer — so it can't archive or
-            // overwrite the chart's bar_data.
+            // Readers never write: a copy with ExportBarData off, or one on a
+            // non-standard bars period (BloodHound's solver series), can never
+            // become the writer — so it can't archive or overwrite bar_data.
             if (!ExportBarData) return false;
+            if (!IsStandardPeriod()) return false;
             if (dataDir == null) return true;
             lock (writerLock)
             {
