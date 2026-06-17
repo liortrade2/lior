@@ -74,10 +74,16 @@ def _watch_targets():
     return targets
 
 
-def watch(interval_seconds: float = 2.0):
+def watch(interval_seconds: float = 2.0, stop_event=None, reload_event=None,
+          switch_queue=None):
     """Poll every instrument's current_features.csv and refresh its
     score.txt whenever it changes — one watch window serves all charts
     (C:\\LIOR_ML\\ES, C:\\LIOR_ML\\NQ, ...).
+
+    stop_event / reload_event (threading.Event, optional) let the control
+    panel run this in a background thread: set stop_event to end the loop,
+    set reload_event after switching a variant so the next tick reloads the
+    affected model.
 
     Also watches for NEW Strategy Analyzer exports dropped into the data
     ROOT: saving an export retrains the right instrument automatically —
@@ -106,6 +112,26 @@ def watch(interval_seconds: float = 2.0):
           f"{config.DATA_ROOT} — each retrains its instrument by itself.")
     bundles, feat_mtimes, missing_model = {}, {}, set()
     while True:
+        if stop_event is not None and stop_event.is_set():
+            return
+        # Variant switches requested by the control panel — performed here
+        # because this thread owns the global instrument state.
+        if switch_queue is not None:
+            from . import variants
+            while not switch_queue.empty():
+                inst, vslug = switch_queue.get()
+                config.set_instrument(inst)
+                try:
+                    if variants.select_variant(vslug):
+                        bundles.clear()
+                        missing_model.clear()
+                        print(f"[{inst}] switched to variant {vslug}")
+                except Exception as e:
+                    print(f"[{inst}] variant switch failed: {e}")
+        if reload_event is not None and reload_event.is_set():
+            bundles.clear()        # a variant was switched in the panel
+            missing_model.clear()
+            reload_event.clear()
         # Any new / re-saved export? Train each (after a short grace period so
         # we never read a file NinjaTrader is still writing). Routed to the
         # right instrument by its Instrument column inside build_and_train.

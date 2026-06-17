@@ -18,7 +18,7 @@ MENU = """
   2. Train model + show PMV score
   3. Score latest bar (one-shot)
   4. Watch mode (real-time scoring loop for NinjaTrader)
-  5. Open control panel (GUI — like the TradeOptima app)
+  5. Control panel (live monitor + variant switch + auto-train) ← NEW
   6. Build training file from backtest (trades export + bar_data.csv)
   7. Score history (bar_scores.csv — retroactive + Playback display)
   8. Strategy variants (list / switch the active model)
@@ -118,8 +118,8 @@ def main():
                 print(f"Missing file: {e.filename}. Train a model first (option 2).")
 
         elif choice == "5":
-            from toai.gui import main as gui_main
-            gui_main()
+            from toai.control_panel import main as panel_main
+            panel_main()
 
         elif choice == "6":
             from toai.merge import merge_backtest
