@@ -131,6 +131,30 @@ def timeframes(inst_dir=None):
     return sorted(t for t in tfs if t is not None)
 
 
+# --------------------------------------------------------------------------- #
+#  Portfolio — strategies that run live TOGETHER, each with its own gate.
+#  Pooling them into one model fails (they enter in opposite conditions); the
+#  diversification win comes from scoring each separately and trading them as a
+#  portfolio. The watch writes score_<slug>.txt per portfolio variant; each
+#  BloodHound reads its own file.
+# --------------------------------------------------------------------------- #
+def set_portfolio(slug: str, inst_dir=None, on: bool = True) -> bool:
+    reg = _load_registry(inst_dir)
+    if slug not in reg:
+        return False
+    reg[slug]["portfolio"] = bool(on)
+    _save_registry(reg, inst_dir)
+    return True
+
+
+def portfolio_variants(inst_dir=None):
+    """[(slug, info), …] for variants flagged into the live portfolio whose
+    model file still exists."""
+    md = _models_dir(inst_dir)
+    return [(s, v) for s, v in _load_registry(inst_dir).items()
+            if v.get("portfolio") and (md / f"{s}.pkl").exists()]
+
+
 def variant_training_file(s: str, inst_dir=None):
     """The per-variant training_data snapshot, or None. Variants saved before
     snapshotting existed won't have one (except the active variant, whose data

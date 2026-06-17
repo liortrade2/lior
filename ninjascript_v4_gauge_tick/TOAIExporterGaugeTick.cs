@@ -53,6 +53,14 @@ namespace NinjaTrader.NinjaScript.Indicators
         [NinjaScriptProperty]
         public bool ShowTextHud { get; set; } = true;
 
+        // The score (gate) file this instance reads. Default "score.txt" = the
+        // active model. For a live PORTFOLIO, add one TOAIExporter per strategy
+        // and point each at its own file (see portfolio.txt), e.g.
+        // "score_1A_15min_Two_EMA_and_Parabolic_SAR....txt" — then each
+        // BloodHound strategy gates on TOAIExporter.MLPass of its own instance.
+        [NinjaScriptProperty]
+        public string ScoreFileName { get; set; } = "score.txt";
+
         public bool MlFilterPassed { get; private set; }
 
         private System.Text.StringBuilder histBuffer;
@@ -143,7 +151,8 @@ namespace NinjaTrader.NinjaScript.Indicators
                 dataDir = RootDir + @"\" + SanitizeName(Instrument.MasterInstrument.Name);
                 featuresFile = dataDir + @"\current_features.csv";
                 barDataFile = dataDir + @"\bar_data.csv";
-                scoreFile = dataDir + @"\score.txt";
+                scoreFile = dataDir + @"\" +
+                    (string.IsNullOrWhiteSpace(ScoreFileName) ? "score.txt" : ScoreFileName.Trim());
                 barScoresFile = dataDir + @"\bar_scores.csv";
                 entryWindowFile = dataDir + @"\entry_window.txt";
                 try

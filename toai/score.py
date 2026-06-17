@@ -50,17 +50,20 @@ def score_features(bundle, features_row: pd.DataFrame) -> float:
     return round(prob * 100, 1)
 
 
-def score_latest_bar(bundle=None) -> float:
-    """Score the last row of current_features.csv and write score.txt."""
+def score_latest_bar(bundle=None, score_file=None) -> float:
+    """Score the last row of current_features.csv and write it to score_file
+    (default score.txt). The score_file override lets the portfolio write a
+    separate gate file per strategy (score_<slug>.txt)."""
     if bundle is None:
         bundle = load_model()
     df = _read_features_with_retry(config.CURRENT_FEATURES_FILE)
     score = score_features(bundle, df.tail(1))
+    score_file = score_file or config.SCORE_FILE
     # Atomic write (temp + replace) so the NinjaScript reader never sees a
-    # half-written score.txt.
-    tmp = config.SCORE_FILE.with_suffix(".tmp")
+    # half-written file.
+    tmp = score_file.with_suffix(".tmp")
     tmp.write_text(str(score))
-    os.replace(tmp, config.SCORE_FILE)
+    os.replace(tmp, score_file)
     return score
 
 
@@ -113,15 +116,15 @@ def watch(interval_seconds: float = 2.0, stop_event=None, reload_event=None,
           f"{config.DATA_ROOT} — each retrains its instrument by itself.")
     bundles, feat_mtimes, missing_model = {}, {}, set()
     exec_mtimes, bardata_mtimes, live_models = {}, {}, {}
-    from . import journal
-    from .merge import consolidate_training_bars
+    portfolio_bundles = {}
+    from . import journal, variants
+    from .merge import consolidate_training_bars, live_timeframe
     while True:
         if stop_event is not None and stop_event.is_set():
             return
         # Variant switches requested by the control panel — performed here
         # because this thread owns the global instrument state.
         if switch_queue is not None:
-            from . import variants
             while not switch_queue.empty():
                 inst, vslug = switch_queue.get()
                 config.set_instrument(inst)
@@ -129,12 +132,14 @@ def watch(interval_seconds: float = 2.0, stop_event=None, reload_event=None,
                     if variants.select_variant(vslug):
                         bundles.clear()
                         missing_model.clear()
+                        portfolio_bundles.clear()
                         print(f"[{inst}] switched to variant {vslug}")
                 except Exception as e:
                     print(f"[{inst}] variant switch failed: {e}")
         if reload_event is not None and reload_event.is_set():
             bundles.clear()        # a variant was switched in the panel
             missing_model.clear()
+            portfolio_bundles.clear()
             reload_event.clear()
         # Any new / re-saved export? Train each (after a short grace period so
         # we never read a file NinjaTrader is still writing). Routed to the
@@ -154,6 +159,7 @@ def watch(interval_seconds: float = 2.0, stop_event=None, reload_event=None,
                 if build_and_train(trades_file=p):
                     bundles.clear()        # reload models lazily below
                     missing_model.clear()
+                    portfolio_bundles.clear()
                     print("-" * 46)
                     print(f"Trained from {p.name}.")
                     # Auto-archive the processed export so it never retrains and
@@ -188,6 +194,7 @@ def watch(interval_seconds: float = 2.0, stop_event=None, reload_event=None,
                     variants.sync_live_model(rescore=True)
                     live_models[name] = tslug
                     bundles.pop(name, None)
+                    portfolio_bundles.clear()
                     missing_model.discard(name)
                     print(f"[{name or 'root'}] live model -> {tslug} ({ltf}min)")
             except Exception:
@@ -221,6 +228,29 @@ def watch(interval_seconds: float = 2.0, stop_event=None, reload_event=None,
             verdict = "ALLOW" if score >= threshold else "SKIP"
             label = f"[{name}] " if name else ""
             print(f"{label}ProbOfTrue: {score:5.1f}  ->  {verdict}  (min {threshold:g})")
+
+            # Portfolio: also score each portfolio strategy with its OWN model
+            # -> <inst>/score_<slug>.txt, so several BloodHound strategies can
+            # run together, each gated independently. A portfolio.txt manifest
+            # maps each file to its strategy (paste the file name into that
+            # strategy's TOAIExporter ScoreFileName).
+            try:
+                ltf2 = live_timeframe(config.DATA_DIR)
+                pf = [(s, i) for s, i in variants.portfolio_variants(config.DATA_DIR)
+                      if i.get("timeframe") == ltf2]
+                manifest = []
+                for s, info in pf:
+                    pb = portfolio_bundles.get((name, s))
+                    if pb is None:
+                        pb = load_model(config.DATA_DIR / "models" / f"{s}.pkl")
+                        portfolio_bundles[(name, s)] = pb
+                    psc = score_latest_bar(pb, score_file=config.DATA_DIR / f"score_{s}.txt")
+                    manifest.append(f"score_{s}.txt\t{info.get('name', '')}\t{psc}")
+                if pf:
+                    (config.DATA_DIR / "portfolio.txt").write_text(
+                        "file\tstrategy\tlast_score\n" + "\n".join(manifest))
+            except Exception as e:
+                print(f"[{name or 'root'}] portfolio score skipped: {e}")
 
         # Realized side of the loop: when live fills land in <inst>/executions.csv
         # (appended by NinjaTrader / the executions logger), record each against

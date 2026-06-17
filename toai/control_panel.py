@@ -600,7 +600,8 @@ class ControlPanel(tk.Tk):
         self.switch_queue = queue.Queue()
         self.watch_thread = None
         self.badges = {}        # inst -> ttk.Label
-        self.radio_vars = {}    # inst -> tk.StringVar
+        self.radio_vars = {}    # (inst, tf) -> tk.StringVar
+        self.pf_vars = {}       # (inst, slug) -> tk.BooleanVar (in portfolio?)
         self.scorecards = {}    # inst -> ScorecardWindow (one per instrument)
         self.compares = {}      # inst -> VariantCompareWindow
         self._edge_labels = {}  # inst -> ttk.Label (the at-a-glance edge line)
@@ -670,6 +671,7 @@ class ControlPanel(tk.Tk):
             w.destroy()
         self.badges.clear()
         self.radio_vars.clear()
+        self.pf_vars.clear()
         insts = config.list_instruments()
         if not insts:
             ttk.Label(self.inner, wraplength=660,
@@ -745,6 +747,11 @@ class ControlPanel(tk.Tk):
                                f"saved {info.get('saved')}").pack(anchor="w")
                 ttk.Button(row, text="✕", width=3,
                            command=lambda i=inst, sl=s, n=info["name"]: self._delete(i, sl, n)).pack(side="right")
+                pfv = tk.BooleanVar(value=bool(info.get("portfolio")))
+                self.pf_vars[(inst, s)] = pfv
+                ttk.Checkbutton(row, text="⊕ portfolio", variable=pfv,
+                                command=lambda i=inst, sl=s, v=pfv: self._toggle_portfolio(i, sl, v)
+                                ).pack(side="right", padx=(0, 6))
 
         if len(vs) >= 2:
             ttk.Button(card, text="⚖ Compare variants",
@@ -808,6 +815,11 @@ class ControlPanel(tk.Tk):
         # Hand the switch to the watch thread (it owns the global config and
         # will rescore + reload the model). UI stays responsive.
         self.activate_variant(inst, s)   # reflects the new [active] tag
+
+    def _toggle_portfolio(self, inst, slug, var):
+        # Pure registry flag — the watch reads it each tick and starts/stops
+        # writing that strategy's own score_<slug>.txt gate file.
+        variants.set_portfolio(slug, _inst_dir(inst), on=var.get())
 
     def _delete(self, inst, s, name):
         if not messagebox.askyesno("Delete variant", f"Delete this saved variant?\n\n{name}"):
