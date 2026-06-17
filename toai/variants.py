@@ -137,6 +137,7 @@ def comparison_data(inst_dir=None):
             "wf_mean": info.get("wf_mean"),
             "wf": info.get("wf"),
             "wf_threshold_report": wf_report,
+            "weight_by_pnl": bool(info.get("weight_by_pnl")),
         })
     return rows
 

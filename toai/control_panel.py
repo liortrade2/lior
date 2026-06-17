@@ -452,7 +452,9 @@ class VariantCompareWindow(tk.Toplevel):
                 r["edge"] = r["allow_exp"] = r["allow_win"] = None
                 r["oos"] = True
                 if tf is not None:
-                    sc = scorecard.compute_scorecard(tf, threshold, self.inst)
+                    sc = scorecard.compute_scorecard(
+                        tf, threshold, self.inst,
+                        weight_by_pnl=r.get("weight_by_pnl", False))
                     if sc is not None:
                         r["edge"] = sc.edge_per_trade
                         r["allow_exp"] = sc.allow.expectancy

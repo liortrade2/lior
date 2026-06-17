@@ -23,8 +23,9 @@ MENU = """
   7. Score history (bar_scores.csv — retroactive + Playback display)
   8. Strategy variants (list / switch the active model)
   9. Live scorecard (win-rate + expectancy by score, vs real PnL)
-  10. Trade journal (REALIZED results from actual fills) ← NEW
-  11. Exit
+  10. Trade journal (REALIZED results from actual fills)
+  11. Expectancy model (train on $ not win/loss — compare + save variant) ← NEW
+  12. Exit
 """
 
 
@@ -127,10 +128,30 @@ def show_journal():
         print(scorecard.format_scorecard(sc))
 
 
+def run_expectancy():
+    from toai import expectancy
+    insts = config.list_instruments() or [None]
+    for inst in insts:
+        try:
+            print(expectancy.compare(inst))
+        except FileNotFoundError:
+            print(f"{inst or 'root'}: no training_data.csv — train a backtest first.")
+            continue
+        ans = input(f"Train + save the expectancy variant for {inst}? (it stays "
+                    "INACTIVE — compare in the panel, activate if it wins) [y/N]: ").strip().lower()
+        if ans == "y":
+            try:
+                slug = expectancy.train_expectancy(inst)
+                print(f"Saved variant: {slug}. Open the Control Panel -> {inst} -> "
+                      "⚖ Compare to see it vs the active model, then Activate if you like.")
+            except Exception as e:
+                print(f"Could not train: {e}")
+
+
 def main():
     while True:
         print(MENU.format(data_dir=config.DATA_DIR))
-        choice = input("Select option [1-11]: ").strip()
+        choice = input("Select option [1-12]: ").strip()
 
         if choice == "1":
             from toai.simulate import write_sample_files
@@ -199,6 +220,9 @@ def main():
             show_journal()
 
         elif choice == "11":
+            run_expectancy()
+
+        elif choice == "12":
             sys.exit(0)
 
         else:

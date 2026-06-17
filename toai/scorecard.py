@@ -107,10 +107,29 @@ class Scorecard:
 # --------------------------------------------------------------------------- #
 #  Out-of-fold scoring (the honest score for every trade)
 # --------------------------------------------------------------------------- #
-def walk_forward_scores(df: pd.DataFrame, features=None, n_folds: int = 4):
+def pnl_weights(pnl: np.ndarray) -> np.ndarray:
+    """Per-trade training weight ∝ |PnL| — the lever that turns a win/loss
+    classifier into an expectancy model. Big winners and big losers count more,
+    so the model learns to dodge the costly losses and favour the fat wins
+    instead of merely the frequent ones. Winsorized at the 97.5th percentile so
+    a few outlier trades can't dominate, with a small floor so break-even trades
+    still contribute. Weights are computed from the TRAINING slice only (no
+    look-ahead)."""
+    w = np.abs(pnl.astype(float))
+    pos = w[w > 0]
+    if len(pos) == 0:
+        return np.ones_like(w)
+    cap = float(np.quantile(pos, 0.975))
+    floor = float(np.median(pos)) * 0.10
+    return np.clip(w, floor, cap)
+
+
+def walk_forward_scores(df: pd.DataFrame, features=None, n_folds: int = 4,
+                        weight_by_pnl: bool = False):
     """Score every trade out-of-fold: train on the past, score the next unseen
     window. Mirrors train.walk_forward but returns each trade's (Score, PnL)
-    instead of a per-fold AUC.
+    instead of a per-fold AUC. With weight_by_pnl, the fold models are trained
+    weighted by |PnL| (expectancy objective) instead of plain win/loss.
 
     Returns a DataFrame with columns Score (0-100) and PnL, or None when there
     is too little data for an honest walk-forward.
@@ -132,7 +151,7 @@ def walk_forward_scores(df: pd.DataFrame, features=None, n_folds: int = 4):
     out_score, out_pnl, out_dt = [], [], []
     for i in range(1, n_folds + 1):
         end = fold * (i + 1) if i < n_folds else n
-        X_tr, y_tr = X[:fold * i], y[:fold * i]
+        X_tr, y_tr, pnl_tr = X[:fold * i], y[:fold * i], pnl[:fold * i]
         X_te, pnl_te = X[fold * i:end], pnl[fold * i:end]
         if len(X_te) == 0 or len(set(y_tr)) < 2:
             continue
@@ -140,7 +159,8 @@ def walk_forward_scores(df: pd.DataFrame, features=None, n_folds: int = 4):
         model = GradientBoostingClassifier(
             random_state=config.RANDOM_STATE,
             n_estimators=200, max_depth=3, learning_rate=0.05)
-        model.fit(scaler.transform(X_tr), y_tr)
+        sw = pnl_weights(pnl_tr) if weight_by_pnl else None
+        model.fit(scaler.transform(X_tr), y_tr, sample_weight=sw)
         prob = model.predict_proba(scaler.transform(X_te))[:, 1]
         out_score.append(prob * 100)
         out_pnl.append(pnl_te)
@@ -233,13 +253,14 @@ class ScoredTrades:
     date_to: str
 
 
-# str(path) -> (mtime, ScoredTrades|None). Walk-forward over thousands of
-# trades is a few seconds; the threshold-dependent aggregation below is
-# microseconds, so we cache only the scoring and rebuild the rest each call.
-_score_cache: dict[str, tuple[float, "ScoredTrades | None"]] = {}
+# (path, weight_by_pnl) -> (mtime, ScoredTrades|None). Walk-forward over
+# thousands of trades is a few seconds; the threshold-dependent aggregation
+# below is microseconds, so we cache only the scoring and rebuild the rest each
+# call. Weighted/unweighted are cached separately so the two can be compared.
+_score_cache: dict[tuple, tuple[float, "ScoredTrades | None"]] = {}
 
 
-def _score_trades_uncached(training_file) -> ScoredTrades | None:
+def _score_trades_uncached(training_file, weight_by_pnl=False) -> ScoredTrades | None:
     try:
         df = pd.read_csv(training_file)
     except (FileNotFoundError, OSError, pd.errors.EmptyDataError):
@@ -258,7 +279,7 @@ def _score_trades_uncached(training_file) -> ScoredTrades | None:
     if len(df) < 30:
         return None
 
-    scored = walk_forward_scores(df)
+    scored = walk_forward_scores(df, weight_by_pnl=weight_by_pnl)
     out_of_sample = scored is not None
     if scored is None:
         scored = _in_sample_scores(df)
@@ -267,19 +288,20 @@ def _score_trades_uncached(training_file) -> ScoredTrades | None:
     return ScoredTrades(scored, out_of_sample, date_from, date_to)
 
 
-def score_trades(training_file, use_cache: bool = True) -> ScoredTrades | None:
-    """Out-of-fold scores+PnL for a training file, cached by mtime."""
+def score_trades(training_file, use_cache: bool = True,
+                 weight_by_pnl: bool = False) -> ScoredTrades | None:
+    """Out-of-fold scores+PnL for a training file, cached by (mtime, weighting)."""
     p = Path(training_file)
     try:
         mtime = p.stat().st_mtime
     except OSError:
         return None
-    key = str(p)
+    key = (str(p), weight_by_pnl)
     if use_cache:
         hit = _score_cache.get(key)
         if hit and hit[0] == mtime:
             return hit[1]
-    res = _score_trades_uncached(training_file)
+    res = _score_trades_uncached(training_file, weight_by_pnl=weight_by_pnl)
     _score_cache[key] = (mtime, res)
     return res
 
@@ -313,10 +335,12 @@ def scorecard_from_scored(scored: pd.DataFrame, threshold: float,
 
 def compute_scorecard(training_file, threshold: float,
                       instrument: str | None = None,
-                      use_cache: bool = True) -> Scorecard | None:
+                      use_cache: bool = True,
+                      weight_by_pnl: bool = False) -> Scorecard | None:
     """Build the scorecard from a training_data.csv. Returns None if the file
-    is missing/empty or lacks both winning and losing trades."""
-    st = score_trades(training_file, use_cache=use_cache)
+    is missing/empty or lacks both winning and losing trades. weight_by_pnl
+    scores via the expectancy-weighted walk-forward."""
+    st = score_trades(training_file, use_cache=use_cache, weight_by_pnl=weight_by_pnl)
     if st is None:
         return None
     return scorecard_from_scored(st.scored, threshold, instrument,
