@@ -95,15 +95,21 @@ def build_and_train(strategy_name: str | None = None, trades_file=None):
 
     # Auto-detect the timeframe TOAI is training on (from the chart's bar_data),
     # so a 15-min strategy trained against 1-min bars (or vice-versa) is visible.
-    from .merge import timeframe_minutes
+    from .merge import timeframe_minutes, consolidate_training_bars
     tf = timeframe_minutes()
     if tf:
         print(f"\nDetected bar_data timeframe: ~{tf:.0f} min "
               f"({config.BAR_DATA_FILE.name})")
 
-    print(f"\nStep 1/2 — merging {trades_file.name} with bar_data.csv")
+    # Train against the FROZEN, full-history bar file (union of every bar ever
+    # seen at this timeframe) — so loading 5 days for daily trading never wipes
+    # the 600 days the model needs. Live scoring still uses the rolling
+    # bar_data.csv; only training reads the consolidated history.
+    train_bars = consolidate_training_bars(config.DATA_DIR, verbose=True)
+
+    print(f"\nStep 1/2 — merging {trades_file.name} with {train_bars.name}")
     print("-" * 46)
-    out = merge_backtest(trades_file)
+    out = merge_backtest(trades_file, bar_data_path=train_bars)
     if len(out) == 0:
         print("\nNo trades matched the bar data. Most likely the chart")
         print("history does not cover the backtest dates — reload the chart")

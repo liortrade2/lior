@@ -111,8 +111,9 @@ def watch(interval_seconds: float = 2.0, stop_event=None, reload_event=None,
     print(f"Auto-retrain: drop one or more Strategy Analyzer exports into "
           f"{config.DATA_ROOT} — each retrains its instrument by itself.")
     bundles, feat_mtimes, missing_model = {}, {}, set()
-    exec_mtimes = {}
+    exec_mtimes, bardata_mtimes = {}, {}
     from . import journal
+    from .merge import consolidate_training_bars
     while True:
         if stop_event is not None and stop_event.is_set():
             return
@@ -195,6 +196,16 @@ def watch(interval_seconds: float = 2.0, stop_event=None, reload_event=None,
         # the score the gate gave it. Deduped, so re-reads are free.
         for name in _watch_targets():
             config.set_instrument(name)
+            # Grow the frozen training history as live bars arrive, so loading
+            # 5 days for daily trading never loses the full history needed to
+            # retrain. Light pass (no archive re-scan).
+            try:
+                bmt = config.BAR_DATA_FILE.stat().st_mtime
+                if bmt != bardata_mtimes.get(name):
+                    bardata_mtimes[name] = bmt
+                    consolidate_training_bars(config.DATA_DIR, include_archives=False)
+            except OSError:
+                pass
             ep = config.DATA_DIR / "executions.csv"
             try:
                 emt = ep.stat().st_mtime

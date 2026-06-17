@@ -10,6 +10,7 @@ Each trade's entry time is matched to the most recent closed bar, so the
 features are exactly what the model would have seen at the entry decision.
 Output: training_data.csv ready for training.
 """
+import os
 import re
 
 import pandas as pd
@@ -100,6 +101,72 @@ def timeframe_minutes(bar_data_path=None):
     gaps = d.diff().dropna().dt.total_seconds() / 60
     gaps = gaps[gaps > 0]
     return float(gaps.median()) if len(gaps) else None
+
+
+def _tf_matches(tf, live_tf) -> bool:
+    return (tf is not None and live_tf is not None
+            and abs(tf - live_tf) <= max(0.5, 0.25 * live_tf))
+
+
+def consolidate_training_bars(inst_dir=None, verbose: bool = False,
+                              include_archives: bool = True):
+    """Maintain a frozen, monotonically-growing training bar history so the
+    chart can load 5 days for daily trading WITHOUT losing the 600 days needed
+    to (re)train.
+
+    `bar_data.csv` is the live rolling file (whatever days the chart loads).
+    `bar_data_train.csv` is the union of every same-timeframe bar ever seen —
+    it only grows, never shrinks. Training reads THIS; live scoring keeps using
+    the small rolling file. If the chart's timeframe changes (e.g. 1-min ->
+    15-min) the stale training history is discarded and rebuilt for the new TF.
+
+    Returns the path to use for training (the train file, or the live file as a
+    fallback)."""
+    inst_dir = inst_dir or config.DATA_DIR
+    live = inst_dir / "bar_data.csv"
+    train = inst_dir / "bar_data_train.csv"
+    if not live.exists():
+        return train if train.exists() else live
+
+    live_tf = timeframe_minutes(live)
+    frames, sources = [], []
+    # Existing train history — keep only if it's the same timeframe.
+    if train.exists() and _tf_matches(timeframe_minutes(train), live_tf):
+        frames.append(train)
+    # Same-timeframe archives (backfill history the live file may have dropped).
+    # Skipped on the watch's light incremental pass — only needed for backfill.
+    if include_archives:
+        for p in inst_dir.glob("bar_data_*-*_*.csv"):
+            if _tf_matches(timeframe_minutes(p), live_tf):
+                frames.append(p)
+    frames.append(live)
+
+    dfs = []
+    for p in frames:
+        try:
+            dfs.append(pd.read_csv(p))
+        except (OSError, ValueError, pd.errors.EmptyDataError):
+            continue
+        sources.append(p.name)
+    if not dfs:
+        return live
+
+    allbars = pd.concat(dfs, ignore_index=True)
+    allbars["DateTime"] = pd.to_datetime(allbars["DateTime"], errors="coerce")
+    allbars = (allbars.dropna(subset=["DateTime"])
+               .drop_duplicates(subset="DateTime", keep="last")
+               .sort_values("DateTime"))
+    try:
+        tmp = train.with_suffix(".tmp")
+        allbars.to_csv(tmp, index=False)
+        os.replace(tmp, train)
+    except OSError:
+        return live   # couldn't write — fall back to the live file
+    if verbose:
+        print(f"Training bars: {len(allbars)} rows "
+              f"({allbars['DateTime'].min()} -> {allbars['DateTime'].max()}) "
+              f"from {len(sources)} source(s)")
+    return train
 
 
 def merge_backtest(trades_path, bar_data_path=None, output_path=None,
