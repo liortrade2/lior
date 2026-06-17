@@ -99,6 +99,15 @@ def build_and_train(strategy_name: str | None = None):
     print("-" * 46)
     train()
 
+    # Snapshot this model as a named strategy variant (keeps every variant's
+    # model so you can switch between them later without retraining). The
+    # export's file name is the variant name; re-training the same name
+    # updates that variant.
+    from . import variants
+    vslug = variants.save_variant(trades_file.stem)
+    if vslug:
+        print(f"\nSaved strategy variant: {trades_file.stem}")
+
     # Retroactive display: score every bar in bar_data.csv so the chart
     # shows labels on historical bars and in Playback.
     from .score_history import score_history
