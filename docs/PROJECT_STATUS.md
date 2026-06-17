@@ -99,10 +99,12 @@
    לעולם לא writer). בלי זה ה-bar_data בסיכון.
 2. **להפעיל מחדש את ה-Control Panel** — לטעון את מודל וריאנט 1.
 3. לטעון מחדש את הגרף.
-4. **(חדש) להזרים `executions.csv` ליומן** — כדי שתצוגת ה-Realized תתמלא, צריך ש-NinjaTrader
-   יכתוב את ה-fills החיים ל-`C:\LIOR_ML\<כלי>\executions.csv` (עמודות כמו ייצוא Trades: Entry time,
-   Market pos., Profit…). אפשרויות: (א) NinjaScript executions-logger (לבנות — מקביל ל-connector של
-   TradesViz/CrossTrade); (ב) ייצוא Trade Performance ידני לאותו שם. ה-watch כבר קולט וקורא אוטומטית.
+4. **(חדש) לקמפל את `TOAIExecutionLogger.cs`** — ה-AddOn שכותב את ה-fills החיים ל-
+   `C:\LIOR_ML\<כלי>\executions.csv` אוטומטית (סוגר את הלולאה החיה). התקנה **פעם אחת**:
+   NinjaScript Editor → New → AddOn (או הדבק את הקובץ ל-`Documents\NinjaTrader 8\bin\Custom\AddOns\`)
+   → F5. רץ ברקע מההפעלה, ללא חלון. **חשוב**: ה-Control Panel חייב לרוץ בזמן המסחר כדי לקלוט את
+   ה-executions.csv ל-journal.csv לפני שהסשן מתאפס. ה-watch כבר קולט אוטומטית. (חלופה ידנית: ייצוא
+   Trade Performance לאותו שם.)
 
 ## 7. 🔥 לקחים/מלכודות (אל תחזור עליהן!)
 - **bar_data ping-pong**: עותק BloodHound רץ על period לא-סטנדרטי (12345) ו"מארכב"=מוחק
