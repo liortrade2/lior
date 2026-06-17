@@ -1,7 +1,6 @@
 #region Using declarations
 using System;
 using System.Collections.Generic;
-using System.Collections.Specialized;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -65,13 +64,13 @@ namespace NinjaTrader.NinjaScript.AddOns
             }
             else if (State == State.Configure)
             {
+                // Account.All is a plain Collection (not observable), so we hook
+                // the accounts present at startup. Sim101 / live accounts exist
+                // by the time AddOns configure, so this covers the normal case.
                 HookAllAccounts();
-                // Also hook accounts that connect later in the session.
-                try { Account.All.CollectionChanged += OnAccountsChanged; } catch { }
             }
             else if (State == State.Terminated)
             {
-                try { Account.All.CollectionChanged -= OnAccountsChanged; } catch { }
                 UnhookAllAccounts();
             }
         }
@@ -100,14 +99,6 @@ namespace NinjaTrader.NinjaScript.AddOns
             hooked.Clear();
         }
 
-        private void OnAccountsChanged(object sender, NotifyCollectionChangedEventArgs e)
-        {
-            if (e.NewItems == null)
-                return;
-            foreach (Account a in e.NewItems)
-                Hook(a);
-        }
-
         private void OnExecutionUpdate(object sender, ExecutionEventArgs e)
         {
             Account account = sender as Account;
@@ -131,15 +122,17 @@ namespace NinjaTrader.NinjaScript.AddOns
                 return;
 
             // SystemPerformance.Calculate() pairs entry/exit executions into
-            // completed Trade objects (with realized ProfitCurrency). We read
-            // the static AllTrades it populates — wrapped in writeLock so the
-            // calculate + read + write is atomic across account threads.
+            // completed Trade objects (with realized ProfitCurrency) and returns
+            // a SystemPerformance instance whose AllTrades we read. Wrapped in
+            // writeLock so calculate + read + write is atomic across threads.
             lock (writeLock)
             {
-                SystemPerformance.Calculate(execs);
+                var perf = SystemPerformance.Calculate(execs);
+                if (perf == null)
+                    return;
 
                 Dictionary<string, List<Trade>> byInst = new Dictionary<string, List<Trade>>();
-                foreach (Trade t in SystemPerformance.AllTrades)
+                foreach (Trade t in perf.AllTrades)
                 {
                     if (t == null || t.Entry == null || t.Entry.Instrument == null)
                         continue;
