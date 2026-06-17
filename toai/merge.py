@@ -103,6 +103,52 @@ def timeframe_minutes(bar_data_path=None):
     return float(gaps.median()) if len(gaps) else None
 
 
+_COMMON_TF = [1, 2, 3, 4, 5, 10, 15, 20, 30, 60]
+
+
+def snap_tf(x):
+    """Snap a measured minute-gap to the nearest standard timeframe."""
+    if x is None:
+        return None
+    return min(_COMMON_TF, key=lambda t: abs(t - x))
+
+
+def tf_from_label(s):
+    """First integer in a string: 'Minute-15' / '15 Min' -> 15."""
+    m = re.search(r"(\d+)", str(s))
+    return int(m.group(1)) if m else None
+
+
+def export_timeframe(path):
+    """The timeframe a backtest export was run on, parsed from its file name
+    (the strategies are named '1A-15min …', '…3min …'). None if not present."""
+    m = re.search(r"(\d+)\s*min", str(path), re.IGNORECASE)
+    return int(m.group(1)) if m else None
+
+
+def live_timeframe(inst_dir=None):
+    """The timeframe the chart is CURRENTLY on — from bar_data_tf.txt (written
+    by the exporter), falling back to detecting it from bar_data.csv. This is
+    how TOAI auto-adapts to whatever TF you set the chart to."""
+    inst_dir = inst_dir or config.DATA_DIR
+    try:
+        tf = tf_from_label((inst_dir / "bar_data_tf.txt").read_text())
+        if tf:
+            return tf
+    except OSError:
+        pass
+    return snap_tf(timeframe_minutes(inst_dir / "bar_data.csv"))
+
+
+def train_bars_name(tf) -> str:
+    return f"bar_data_train_{int(tf)}min.csv"
+
+
+def train_bars_for(inst_dir, tf):
+    """The frozen training-history file for a specific timeframe."""
+    return (inst_dir or config.DATA_DIR) / train_bars_name(tf)
+
+
 def _tf_matches(tf, live_tf) -> bool:
     return (tf is not None and live_tf is not None
             and abs(tf - live_tf) <= max(0.5, 0.25 * live_tf))
@@ -120,24 +166,29 @@ def consolidate_training_bars(inst_dir=None, verbose: bool = False,
     the small rolling file. If the chart's timeframe changes (e.g. 1-min ->
     15-min) the stale training history is discarded and rebuilt for the new TF.
 
-    Returns the path to use for training (the train file, or the live file as a
-    fallback)."""
+    Per timeframe: bar_data_train_1min.csv, _5min, _15min … each its own growing
+    union, so switching the chart TF never loses another TF's history.
+
+    Returns the path to use for training (the per-TF train file, or the live
+    file as a fallback)."""
     inst_dir = inst_dir or config.DATA_DIR
     live = inst_dir / "bar_data.csv"
-    train = inst_dir / "bar_data_train.csv"
     if not live.exists():
-        return train if train.exists() else live
+        return live
 
-    live_tf = timeframe_minutes(live)
+    live_tf = live_timeframe(inst_dir)
+    if live_tf is None:
+        return live
+    train = train_bars_for(inst_dir, live_tf)
     frames, sources = [], []
-    # Existing train history — keep only if it's the same timeframe.
-    if train.exists() and _tf_matches(timeframe_minutes(train), live_tf):
+    # Existing per-TF train history (same file name => same timeframe).
+    if train.exists():
         frames.append(train)
     # Same-timeframe archives (backfill history the live file may have dropped).
     # Skipped on the watch's light incremental pass — only needed for backfill.
     if include_archives:
         for p in inst_dir.glob("bar_data_*-*_*.csv"):
-            if _tf_matches(timeframe_minutes(p), live_tf):
+            if _tf_matches(snap_tf(timeframe_minutes(p)), live_tf):
                 frames.append(p)
     frames.append(live)
 

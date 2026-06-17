@@ -652,10 +652,17 @@ class ControlPanel(tk.Tk):
         self.canvas.yview_scroll(int(-e.delta / 120), "units")
 
     def _signature(self):
+        from .merge import live_timeframe
         sig = []
         for inst in config.list_instruments():
-            vs = variants.list_variants(_inst_dir(inst))
-            sig.append((inst, tuple((s, v.get("active")) for s, v in vs)))
+            d = _inst_dir(inst)
+            vs = variants.list_variants(d)
+            try:
+                ltf = live_timeframe(d)
+            except Exception:
+                ltf = None
+            sig.append((inst, ltf, tuple((s, v.get("active"), v.get("timeframe"))
+                                         for s, v in vs)))
         return tuple(sig)
 
     def _rebuild(self):
@@ -692,24 +699,52 @@ class ControlPanel(tk.Tk):
                            "C:\\LIOR_ML and it trains automatically.").pack(anchor="w", pady=(6, 0))
             return
 
-        active, _ = variants.active_variant(d)
-        rv = tk.StringVar(value=active or "")
-        self.radio_vars[inst] = rv
+        # Which timeframe is the chart on right now (this is the model scoring
+        # live). Variants are grouped by their own TF, one active per TF.
+        from .merge import live_timeframe
+        try:
+            live_tf = live_timeframe(d)
+        except Exception:
+            live_tf = None
+        ttk.Label(head, foreground=GREEN if live_tf else MUTED,
+                  font=("Segoe UI", 9, "bold"),
+                  text=f"chart: {live_tf}min" if live_tf else "chart: ?").pack(
+            side="left", padx=(8, 0))
+
+        groups = {}
         for s, info in vs:
-            row = ttk.Frame(card)
-            row.pack(fill="x", pady=3)
-            ttk.Radiobutton(row, value=s, variable=rv,
-                            command=lambda i=inst, sl=s: self._activate(i, sl)).pack(side="left")
-            txt = ttk.Frame(row)
-            txt.pack(side="left", fill="x", expand=True)
-            tag = "   ← active" if info.get("active") else ""
-            ttk.Label(txt, text=info["name"][:55] + tag,
-                      font=("Segoe UI", 10, "bold")).pack(anchor="w")
-            ttk.Label(txt, foreground=MUTED, font=("Consolas", 8),
-                      text=f"PMV {info.get('pmv')}  ·  WF {info.get('wf_mean')}  ·  "
-                           f"saved {info.get('saved')}").pack(anchor="w")
-            ttk.Button(row, text="✕", width=3,
-                       command=lambda i=inst, sl=s, n=info["name"]: self._delete(i, sl, n)).pack(side="right")
+            groups.setdefault(info.get("timeframe"), []).append((s, info))
+
+        for tf in sorted(groups, key=lambda t: (t is None, t or 0)):
+            is_live = (tf == live_tf)
+            tflabel = f"{tf}min" if tf else "no TF"
+            hdr = ttk.Frame(card)
+            hdr.pack(fill="x", pady=(6, 0))
+            ttk.Label(hdr, text=f"▸ {tflabel}",
+                      font=("Segoe UI", 9, "bold"),
+                      foreground=GREEN if is_live else MUTED).pack(side="left")
+            if is_live:
+                ttk.Label(hdr, text="● live", foreground=GREEN,
+                          font=("Segoe UI", 8)).pack(side="left", padx=(6, 0))
+
+            act_s, _ = variants.active_variant_for_tf(tf, d)
+            rv = tk.StringVar(value=act_s or "")
+            self.radio_vars[(inst, tf)] = rv
+            for s, info in groups[tf]:
+                row = ttk.Frame(card)
+                row.pack(fill="x", pady=2, padx=(12, 0))
+                ttk.Radiobutton(row, value=s, variable=rv,
+                                command=lambda i=inst, sl=s: self._activate(i, sl)).pack(side="left")
+                txt = ttk.Frame(row)
+                txt.pack(side="left", fill="x", expand=True)
+                tag = "   ← active" if info.get("active") else ""
+                ttk.Label(txt, text=info["name"][:52] + tag,
+                          font=("Segoe UI", 10, "bold")).pack(anchor="w")
+                ttk.Label(txt, foreground=MUTED, font=("Consolas", 8),
+                          text=f"PMV {info.get('pmv')}  ·  WF {info.get('wf_mean')}  ·  "
+                               f"saved {info.get('saved')}").pack(anchor="w")
+                ttk.Button(row, text="✕", width=3,
+                           command=lambda i=inst, sl=s, n=info["name"]: self._delete(i, sl, n)).pack(side="right")
 
         if len(vs) >= 2:
             ttk.Button(card, text="⚖ Compare variants",

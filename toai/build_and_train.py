@@ -93,19 +93,27 @@ def build_and_train(strategy_name: str | None = None, trades_file=None):
         print("ExportBarData = true. Wait for the chart to finish loading.")
         return False
 
-    # Auto-detect the timeframe TOAI is training on (from the chart's bar_data),
-    # so a 15-min strategy trained against 1-min bars (or vice-versa) is visible.
-    from .merge import timeframe_minutes, consolidate_training_bars
-    tf = timeframe_minutes()
-    if tf:
-        print(f"\nDetected bar_data timeframe: ~{tf:.0f} min "
-              f"({config.BAR_DATA_FILE.name})")
+    # Multi-timeframe routing: the strategy's TF comes from its file name
+    # ("1A-15min …" -> 15), falling back to the chart's current TF. Each TF has
+    # its own frozen training history, so a 15-min strategy never trains against
+    # 1-min bars and loading 5 days for daily use never wipes the 600 needed to
+    # train.
+    from .merge import (live_timeframe, export_timeframe,
+                        consolidate_training_bars, train_bars_for)
+    live_tf = live_timeframe(config.DATA_DIR)
+    exp_tf = export_timeframe(trades_file) or live_tf
+    print(f"\nStrategy timeframe: {exp_tf}min   (chart is on {live_tf}min)")
 
-    # Train against the FROZEN, full-history bar file (union of every bar ever
-    # seen at this timeframe) — so loading 5 days for daily trading never wipes
-    # the 600 days the model needs. Live scoring still uses the rolling
-    # bar_data.csv; only training reads the consolidated history.
-    train_bars = consolidate_training_bars(config.DATA_DIR, verbose=True)
+    if exp_tf == live_tf:
+        # On the matching chart — grow and use this TF's frozen history.
+        train_bars = consolidate_training_bars(config.DATA_DIR, verbose=True)
+    else:
+        # Different TF — use that TF's stored history if we have it.
+        train_bars = train_bars_for(config.DATA_DIR, exp_tf)
+        if not train_bars.exists():
+            print(f"\nNo {exp_tf}-min bar history yet. Set the chart to {exp_tf}-min,")
+            print("load enough days to cover the backtest, then train this strategy.")
+            return False
 
     print(f"\nStep 1/2 — merging {trades_file.name} with {train_bars.name}")
     print("-" * 46)
@@ -125,9 +133,9 @@ def build_and_train(strategy_name: str | None = None, trades_file=None):
     # export's file name is the variant name; re-training the same name
     # updates that variant.
     from . import variants
-    vslug = variants.save_variant(trades_file.stem)
+    vslug = variants.save_variant(trades_file.stem, timeframe=exp_tf)
     if vslug:
-        print(f"\nSaved strategy variant: {trades_file.stem}")
+        print(f"\nSaved strategy variant ({exp_tf}min): {trades_file.stem}")
 
     # Retroactive display: score every bar in bar_data.csv so the chart
     # shows labels on historical bars and in Playback.

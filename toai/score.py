@@ -111,7 +111,7 @@ def watch(interval_seconds: float = 2.0, stop_event=None, reload_event=None,
     print(f"Auto-retrain: drop one or more Strategy Analyzer exports into "
           f"{config.DATA_ROOT} — each retrains its instrument by itself.")
     bundles, feat_mtimes, missing_model = {}, {}, set()
-    exec_mtimes, bardata_mtimes = {}, {}
+    exec_mtimes, bardata_mtimes, live_models = {}, {}, {}
     from . import journal
     from .merge import consolidate_training_bars
     while True:
@@ -161,6 +161,25 @@ def watch(interval_seconds: float = 2.0, stop_event=None, reload_event=None,
 
         for name in _watch_targets():
             config.set_instrument(name)
+            # Multi-TF auto-adapt: make model.pkl the active variant for the
+            # chart's CURRENT timeframe (read live from bar_data_tf.txt). When
+            # you switch the chart's TF — or pick a different strategy in the
+            # panel — the live model follows, no restart needed.
+            try:
+                from .merge import live_timeframe
+                from . import variants
+                ltf = live_timeframe(config.DATA_DIR)
+                tslug, _ = variants.active_variant_for_tf(ltf, config.DATA_DIR)
+                if tslug is None:
+                    tslug, _ = variants.active_variant(config.DATA_DIR)
+                if tslug is not None and tslug != live_models.get(name):
+                    variants.sync_live_model(rescore=True)
+                    live_models[name] = tslug
+                    bundles.pop(name, None)
+                    missing_model.discard(name)
+                    print(f"[{name or 'root'}] live model -> {tslug} ({ltf}min)")
+            except Exception:
+                pass
             try:
                 mtime = config.CURRENT_FEATURES_FILE.stat().st_mtime
             except FileNotFoundError:
