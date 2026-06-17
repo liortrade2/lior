@@ -22,7 +22,8 @@ MENU = """
   6. Build training file from backtest (trades export + bar_data.csv)
   7. Score history (bar_scores.csv — retroactive + Playback display)
   8. Strategy variants (list / switch the active model)
-  9. Exit
+  9. Live scorecard (win-rate + expectancy by score, vs real PnL) ← NEW
+  10. Exit
 """
 
 
@@ -79,10 +80,37 @@ def manage_variants():
         print("Could not activate (model file missing).")
 
 
+def show_scorecard():
+    from toai import scorecard
+    insts = config.list_instruments() or [None]
+    if insts == [None] and not (config.DATA_ROOT / "training_data.csv").exists():
+        print("No instruments with trade data yet. Train a backtest export first.")
+        return
+    if len(insts) > 1:
+        print("\nInstruments:")
+        for i, name in enumerate(insts, 1):
+            print(f"  {i}. {name}")
+        pick = input("Pick instrument # (Enter for all): ").strip()
+        if pick:
+            try:
+                insts = [insts[int(pick) - 1]]
+            except (ValueError, IndexError):
+                print("Invalid choice.")
+                return
+    for inst in insts:
+        print("\n(computing walk-forward scorecard…)")
+        sc = scorecard.scorecard_for_instrument(inst)
+        if sc is None:
+            print(f"No scorecard for {inst or 'root'} — needs training_data.csv "
+                  "with both winning and losing trades.")
+            continue
+        print(scorecard.format_scorecard(sc))
+
+
 def main():
     while True:
         print(MENU.format(data_dir=config.DATA_DIR))
-        choice = input("Select option [1-8]: ").strip()
+        choice = input("Select option [1-10]: ").strip()
 
         if choice == "1":
             from toai.simulate import write_sample_files
@@ -145,6 +173,9 @@ def main():
             manage_variants()
 
         elif choice == "9":
+            show_scorecard()
+
+        elif choice == "10":
             sys.exit(0)
 
         else:
