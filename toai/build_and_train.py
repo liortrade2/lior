@@ -41,12 +41,18 @@ def _export_instrument(path) -> str | None:
     return value.split()[0] if value else None
 
 
+def all_trades_exports():
+    """Every trades-export CSV in the data ROOT (across all instruments).
+    Exports are always saved to the root; the Instrument column routes each
+    to its per-instrument folder."""
+    return [p for p in config.DATA_ROOT.glob("*.csv")
+            if p.name not in _OWN_FILES and _is_trades_export(p)]
+
+
 def find_trades_export(strategy_name: str | None = None):
-    """Newest trades-export CSV in the data ROOT (exports are always saved
-    there; the Instrument column routes them to the per-instrument folder),
-    preferring files whose name contains the selected strategy's name."""
-    candidates = [p for p in config.DATA_ROOT.glob("*.csv")
-                  if p.name not in _OWN_FILES and _is_trades_export(p)]
+    """Newest trades-export CSV in the data ROOT, preferring files whose name
+    contains the selected strategy's name."""
+    candidates = all_trades_exports()
     if not candidates:
         return None
     if strategy_name:
@@ -57,12 +63,13 @@ def find_trades_export(strategy_name: str | None = None):
     return max(candidates, key=lambda p: p.stat().st_mtime)
 
 
-def build_and_train(strategy_name: str | None = None):
+def build_and_train(strategy_name: str | None = None, trades_file=None):
     print("=" * 46)
     print("  TOAI — Build training file + train model")
     print("=" * 46)
 
-    trades_file = find_trades_export(strategy_name)
+    if trades_file is None:
+        trades_file = find_trades_export(strategy_name)
     if trades_file is None:
         print(f"\nNo trades export found in {config.DATA_ROOT}")
         print("\nIn NinjaTrader:")

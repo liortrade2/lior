@@ -63,16 +63,6 @@ def score_latest_bar(bundle=None) -> float:
     return score
 
 
-def _newest_export():
-    """Newest Strategy Analyzer export in the data dir (path, mtime)."""
-    from .build_and_train import find_trades_export
-    try:
-        p = find_trades_export()
-        return (p, p.stat().st_mtime) if p else (None, 0.0)
-    except Exception:
-        return (None, 0.0)
-
-
 def _watch_targets():
     """Instrument folders to poll. The root itself is included as long as a
     legacy current_features.csv lives there (exporter from before the
@@ -103,34 +93,42 @@ def watch(interval_seconds: float = 2.0):
         except FileNotFoundError:
             pass
 
-    # Exports that already exist don't retrigger training — only new ones.
-    _, last_export_mtime = _newest_export()
+    # Exports present at startup are treated as already processed (a restart
+    # doesn't retrain). Only NEW or re-saved exports retrain — and ALL of
+    # them, across every instrument, not just the newest.
+    from .build_and_train import all_trades_exports, build_and_train
+    trained = {str(p): p.stat().st_mtime for p in all_trades_exports()}
 
     print(f"Watching {config.DATA_ROOT} — one folder per instrument (Ctrl+C to stop)")
     print(f"Threshold: {config.get_threshold()} — trades below are skipped "
           f"(from {config.THRESHOLD_FILE.name}, shared by all instruments)")
-    print(f"Auto-retrain: save a new Strategy Analyzer export into "
-          f"{config.DATA_ROOT} and the right instrument retrains by itself.")
+    print(f"Auto-retrain: drop one or more Strategy Analyzer exports into "
+          f"{config.DATA_ROOT} — each retrains its instrument by itself.")
     bundles, feat_mtimes, missing_model = {}, {}, set()
     while True:
-        # New backtest export? Retrain automatically (after a short grace
-        # period so we never read a file NinjaTrader is still writing).
-        export_path, export_mtime = _newest_export()
-        if (export_path is not None and export_mtime > last_export_mtime
-                and time.time() - export_mtime > 5):
-            last_export_mtime = export_mtime
-            print(f"\nNew trades export detected: {export_path.name}")
+        # Any new / re-saved export? Train each (after a short grace period so
+        # we never read a file NinjaTrader is still writing). Routed to the
+        # right instrument by its Instrument column inside build_and_train.
+        for p in all_trades_exports():
+            try:
+                mtime = p.stat().st_mtime
+            except OSError:
+                continue
+            key = str(p)
+            if mtime <= trained.get(key, 0) + 0.5 or time.time() - mtime <= 5:
+                continue
+            trained[key] = mtime
+            print(f"\nNew trades export detected: {p.name}")
             print("Retraining automatically…\n" + "-" * 46)
             try:
-                from .build_and_train import build_and_train
-                if build_and_train():
+                if build_and_train(trades_file=p):
                     bundles.clear()        # reload models lazily below
                     missing_model.clear()
                     print("-" * 46)
-                    print("Model reloaded — live scores now use the NEW model.")
-                    print("Reload the chart to refresh the historical labels.\n")
+                    print(f"Trained from {p.name}.")
+                    print("Reload that instrument's chart to refresh labels.\n")
             except Exception as e:
-                print(f"Auto-retrain failed: {e}\n")
+                print(f"Auto-retrain failed for {p.name}: {e}\n")
 
         for name in _watch_targets():
             config.set_instrument(name)
