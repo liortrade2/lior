@@ -85,12 +85,39 @@ def match_trades(trades_path, bar_data_path=None, tolerance_minutes: int = 30):
     return out, len(trades), unmatched
 
 
+def timeframe_minutes(bar_data_path=None):
+    """Infer the bar_data timeframe (minutes) from the median gap between bars —
+    so the pipeline can detect whether it's a 1-min, 5-min, 15-min… export and
+    warn on a mismatch instead of silently training on the wrong timeframe."""
+    bar_data_path = bar_data_path or config.BAR_DATA_FILE
+    try:
+        d = pd.to_datetime(pd.read_csv(bar_data_path, usecols=["DateTime"])["DateTime"],
+                           errors="coerce").dropna().sort_values()
+    except (OSError, ValueError, KeyError):
+        return None
+    if len(d) < 3:
+        return None
+    gaps = d.diff().dropna().dt.total_seconds() / 60
+    gaps = gaps[gaps > 0]
+    return float(gaps.median()) if len(gaps) else None
+
+
 def merge_backtest(trades_path, bar_data_path=None, output_path=None,
                    tolerance_minutes: int = 30, verbose: bool = True):
     output_path = output_path or config.TRAINING_FILE
 
     out, n_trades, unmatched = match_trades(trades_path, bar_data_path,
                                             tolerance_minutes)
+    # Never overwrite a good training_data.csv with an empty one. Zero matches
+    # almost always means the chart's bar_data doesn't cover the backtest
+    # period (or is the wrong timeframe) — writing the empty result is what
+    # wiped training_data on 2026-06-17. Leave the existing file intact.
+    if len(out) == 0:
+        if verbose:
+            print("No trades matched the bar data — training_data.csv left "
+                  "UNCHANGED (load chart history that covers the backtest, or "
+                  "check the timeframe).")
+        return out
     config.DATA_DIR.mkdir(parents=True, exist_ok=True)
     out.to_csv(output_path, index=False)
 

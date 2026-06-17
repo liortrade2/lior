@@ -93,6 +93,14 @@ def build_and_train(strategy_name: str | None = None, trades_file=None):
         print("ExportBarData = true. Wait for the chart to finish loading.")
         return False
 
+    # Auto-detect the timeframe TOAI is training on (from the chart's bar_data),
+    # so a 15-min strategy trained against 1-min bars (or vice-versa) is visible.
+    from .merge import timeframe_minutes
+    tf = timeframe_minutes()
+    if tf:
+        print(f"\nDetected bar_data timeframe: ~{tf:.0f} min "
+              f"({config.BAR_DATA_FILE.name})")
+
     print(f"\nStep 1/2 — merging {trades_file.name} with bar_data.csv")
     print("-" * 46)
     out = merge_backtest(trades_file)
