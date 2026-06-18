@@ -130,6 +130,16 @@ def convert_all(src_dir=None, tag_score=True):
     return done
 
 
+def export_all(tag_score=True):
+    """Convert every NinjaTrader export in the data root AND _trained/ to
+    Edgewonk .xlsx (in _edgewonk/). Returns [(src, out, note), …]."""
+    done = []
+    for d in (config.DATA_ROOT, config.DATA_ROOT / "_trained"):
+        if Path(d).is_dir():
+            done += convert_all(d, tag_score=tag_score)
+    return done
+
+
 if __name__ == "__main__":
     import sys
     if len(sys.argv) > 1:

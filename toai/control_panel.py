@@ -12,6 +12,7 @@ a queue, so the two threads don't fight over the shared instrument state.
 
 Run:  python -m toai.control_panel   (or main.py option 5)
 """
+import os
 import queue
 import threading
 import tkinter as tk
@@ -621,6 +622,9 @@ class ControlPanel(tk.Tk):
         top.pack(fill="x")
         ttk.Label(top, text="TOAI control panel",
                   font=("Segoe UI", 15, "bold")).pack(side="left")
+        self.ew_btn = ttk.Button(top, text="Export → Edgewonk",
+                                 command=self._export_edgewonk)
+        self.ew_btn.pack(side="left", padx=(12, 0))
 
         ttk.Button(top, text="Set", width=4, command=self._set_threshold).pack(side="right")
         self.thr_var = tk.StringVar(value=f"{config.get_threshold():g}")
@@ -651,6 +655,42 @@ class ControlPanel(tk.Tk):
 
     def _on_wheel(self, e):
         self.canvas.yview_scroll(int(-e.delta / 120), "units")
+
+    # ---------- Edgewonk export ----------
+    def _export_edgewonk(self):
+        self._ew_result = None
+        self.ew_btn.config(state="disabled", text="Exporting…")
+        threading.Thread(target=self._ew_worker, daemon=True).start()
+        self.after(200, self._ew_poll)
+
+    def _ew_worker(self):
+        try:
+            from . import edgewonk
+            done = edgewonk.export_all()
+            ok = sum(1 for _, o, _ in done if not str(o).startswith("ERROR"))
+            self._ew_result = (ok, None)
+        except Exception as e:
+            self._ew_result = (0, str(e))
+
+    def _ew_poll(self):
+        if not self.winfo_exists():
+            return
+        if self._ew_result is None:
+            self.after(200, self._ew_poll)
+            return
+        n, err = self._ew_result
+        self.ew_btn.config(state="normal", text="Export → Edgewonk")
+        dest = config.DATA_ROOT / "_edgewonk"
+        if err:
+            messagebox.showwarning("Edgewonk", f"Export failed:\n{err}")
+        elif messagebox.askyesno(
+                "Edgewonk", f"Wrote {n} Edgewonk .xlsx file(s) to:\n{dest}\n\n"
+                "Each trade is tagged with its strategy's TOAI score.\n\n"
+                "Open the folder?"):
+            try:
+                os.startfile(str(dest))
+            except Exception:
+                pass
 
     def _signature(self):
         from .merge import live_timeframe
