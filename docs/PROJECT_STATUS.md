@@ -154,7 +154,7 @@ bar_scores כולם נמחקו. ה-`MES` עכשיו **לוח נקי** (variants.
 - **features יחסיים בלבד** (toai/features.py) — לעולם לא רמות מחיר אבסולוטיות.
 
 ## 8. נקודות שחזור
-- ‏git: ענף `claude/magical-dirac-1yd0d4`. ‏HEAD נוכחי ≈ `ad2ced8`.
+- ‏git: ענף `claude/magical-dirac-1yd0d4`. ‏HEAD נוכחי ≈ `8d36ad3`.
 - ‏`4c808f3` = v1 יציב (לפני הגרפיקה). גיבוי פיזי: `C:\LIOR_ML_archive\code_v1_working_20260616`.
 - כל מודל/וריאנט ב-`C:\LIOR_ML\<כלי>\models\` (לא ב-git).
 
