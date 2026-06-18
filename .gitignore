@@ -8,3 +8,6 @@ venv/
 data/
 *.pkl
 score.txt
+
+# Install packages built by make_installer.py
+dist/
