@@ -24,8 +24,9 @@ MENU = """
   8. Strategy variants (list / switch the active model)
   9. Live scorecard (win-rate + expectancy by score, vs real PnL)
   10. Trade journal (REALIZED results from actual fills)
-  11. Expectancy model (train on $ not win/loss — compare + save variant) ← NEW
-  12. Exit
+  11. Expectancy model (train on $ not win/loss — compare + save variant)
+  12. Position sizing (does score-tiered sizing beat uniform?) ← NEW
+  13. Exit
 """
 
 
@@ -151,7 +152,7 @@ def run_expectancy():
 def main():
     while True:
         print(MENU.format(data_dir=config.DATA_DIR))
-        choice = input("Select option [1-12]: ").strip()
+        choice = input("Select option [1-13]: ").strip()
 
         if choice == "1":
             from toai.simulate import write_sample_files
@@ -223,6 +224,11 @@ def main():
             run_expectancy()
 
         elif choice == "12":
+            from toai import sizing
+            for inst in (config.list_instruments() or [None]):
+                print(sizing.report(inst))
+
+        elif choice == "13":
             sys.exit(0)
 
         else:
