@@ -225,19 +225,24 @@ class ScorecardWindow(tk.Toplevel):
 
         if self._rec:
             be, bt = self._rec["by_expectancy"], self._rec["by_total"]
-            hint = ttk.Frame(box)
-            hint.pack(fill="x", pady=(6, 0))
-            ttk.Label(hint, foreground=MUTED, font=("Consolas", 8),
+            ttk.Label(box, foreground=MUTED, font=("Consolas", 8),
                       text=f"optimal — max $/trade: {be['threshold']:.0f} "
                            f"(+{be['expectancy']:.2f}$, takes {be['selectivity']:.0f}%)"
                            f"   ·   max total $: {bt['threshold']:.0f} "
-                           f"(+{bt['total']:,.0f}$)").pack(side="left")
-            ttk.Button(hint, text=f"Use {bt['threshold']:.0f}", width=7,
+                           f"(+{bt['total']:,.0f}$)").pack(anchor="w", pady=(6, 2))
+            # One-click "snap to optimal": move the slider to a recommended gate
+            # (preview only — review the charts, then Apply to live). Two targets
+            # because they optimise different things and land far apart.
+            jump = ttk.Frame(box)
+            jump.pack(fill="x")
+            ttk.Label(jump, text="Jump to optimal:",
+                      font=("Segoe UI", 9, "bold")).pack(side="left", padx=(0, 6))
+            ttk.Button(jump, text=f"⭐ Max total $  ({bt['threshold']:.0f})",
                        command=lambda t=int(bt['threshold']): self._set_preview(t)
-                       ).pack(side="right", padx=(4, 0))
-            ttk.Button(hint, text=f"Use {be['threshold']:.0f}", width=7,
+                       ).pack(side="left", padx=(0, 6))
+            ttk.Button(jump, text=f"⭐ Max $/trade  ({be['threshold']:.0f})",
                        command=lambda t=int(be['threshold']): self._set_preview(t)
-                       ).pack(side="right")
+                       ).pack(side="left")
         self._pv_label.config(text=str(self._preview.get()))
 
     def _on_slider(self, _val):
