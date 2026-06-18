@@ -1,17 +1,19 @@
 # TOAI — Project Status & Handoff
 
-> **קרא אותי ראשון בכל chat חדש.** עדכון אחרון: **2026-06-16 לילה**.
+> **קרא אותי ראשון בכל chat חדש.** עדכון אחרון: **2026-06-17 לילה**.
 > כתוב כ-handoff מלא — הצ'אט הקודם הגיע לגבול אורך.
 
 ---
 
 ## 1. מה המערכת עושה (עובד ✅)
 
-פילטר עסקאות ML ל-NinjaTrader. ‏BloodHound מייצר סיגנלים (אסטרטגיית
-**BBTMP Bollinger 2.5 Volatility Spike**, לוגיקה 1-CCI EMA MACD_RTH),
-‏TOAI מחשב Probability-of-Win לכל בר, ‏BloodHound בודק את ה-plot **MLPass**
-‏(0/1) כ-solver וחוסם סיגנלים מתחת לסף. ‏BlackBird מנהל את העסקה.
-מסחר ב-**Sim101** (לא חי-אמיתי עדיין).
+פילטר עסקאות ML ל-NinjaTrader. ‏BloodHound מייצר סיגנלים, ‏TOAI מחשב
+Probability-of-Win לכל בר, ‏BloodHound בודק את ה-plot **MLPass** (0/1) כ-solver
+וחוסם סיגנלים מתחת לסף, ‏BlackBird מנהל את העסקה (כולל בלמים: kill-switch,
+תקרת-הפסד) + XABCD News Pro לחדשות. מסחר ב-**Sim101**.
+‏**הצינור אגנוסטי לאסטרטגיה ול-TF** (רב-TF, ראה §3). **האסטרטגיה הפעילה כרגע**:
+‏MES 15-דקות, **Two EMA + Parabolic SAR** (WF 0.62 — היחידה המאומתת מתוך 5).
+‏BBTMP הישן הוצא משימוש.
 
 ## 2. הגרסה החיה = **v4** (`ninjascript_v4_gauge_tick/`)
 
@@ -118,16 +120,16 @@ bar_scores כולם נמחקו. ה-`MES` עכשיו **לוח נקי** (variants.
 ---
 
 ## 6. ⚠️ פעולות פתוחות בצד ליאור (מכונת המסחר)
-1. **לקמפל מחדש את `TOAIExporterGaugeTick`** — תיקון ה-ping-pong האחרון (custom-period
-   לעולם לא writer). בלי זה ה-bar_data בסיכון.
-   ‏⚠️ **קרה שוב ב-17/6 ~11:00**: ה-bar_data החי הצטמצם ל-~5000 ברים (כמה ימים), ו-exports חדשים
-   ("1A-15min…") בשורש אימנו מול ה-bar_data המוקטן → 0 התאמות → `MES/training_data.csv` נמחק (header בלבד).
-   **שוחזר** מ-`MES/bar_data_Minute-1_20260617-090455.csv` (111k ברים, היסטוריה מלאה) + ה-export "1-".
-   **למנוע**: (א) לקמפל את התיקון ולטעון את גרף ה-1-דקה עם היסטוריה מלאה; (ב) **לא** לזרוק exports של
-   אסטרטגיות/TF אחרים (15min) לשורש כל עוד אין להם bar_data משלהם — הם מאמנים מול ה-bar_data של MES.
-2. **להפעיל מחדש את ה-Control Panel** — לטעון את מודל וריאנט 1.
-3. לטעון מחדש את הגרף.
-4. **(חדש) לקמפל את `TOAIExecutionLogger.cs`** — ה-AddOn שכותב את ה-fills החיים ל-
+1. **לקמפל מחדש את `TOAIExporterGaugeTick`** — (א) תיקון ה-ping-pong (custom-period לעולם לא writer);
+   (ב) **חדש**: נוסף input `ScoreFileName` (ברירת-מחדל score.txt, תאימות-לאחור) לתיק פר-אסטרטגיה. בלי
+   הקומפילציה ה-bar_data בסיכון וה-ScoreFileName לא קיים.
+   ‏⚠️ **ה-ping-pong חזר ב-17/6** ומחק את training_data (שוחזר). **תיקוני-קוד הכניסו הגנה**: merge כבר
+   לא דורס training_data לריק, ו-`bar_data_train_<tf>min.csv` שומר היסטוריה (ראה §7). אבל שורש ה-ping-pong
+   הוא ה-exporter — לקמפל. **כלל**: רק גרף MES אחד רץ (15-דקות), עם היסטוריה מלאה (600 יום) ל-bar_data_train.
+2. **לוודא שה-Control Panel רץ בזמן המסחר** — טוען את המודל הפעיל (Two EMA+PSAR 15-דקות) וקולט executions.
+3. (BBTMP/וריאנט-1 הוצאו משימוש — לא רלוונטי יותר.)
+4. **לבדוק את `TOAIExecutionLogger.cs`** — קומפל בהצלחה ✅; נשאר לאמת שהוא כותב `executions.csv` עם fills
+   אמיתיים בזמן מסחר. ה-AddOn שכותב את ה-fills החיים ל-
    `C:\LIOR_ML\<כלי>\executions.csv` אוטומטית (סוגר את הלולאה החיה). התקנה **פעם אחת**:
    NinjaScript Editor → New → AddOn (או הדבק את הקובץ ל-`Documents\NinjaTrader 8\bin\Custom\AddOns\`)
    → F5. רץ ברקע מההפעלה, ללא חלון. **חשוב**: ה-Control Panel חייב לרוץ בזמן המסחר כדי לקלוט את
@@ -166,8 +168,26 @@ bar_scores כולם נמחקו. ה-`MES` עכשיו **לוח נקי** (variants.
 ---
 
 ## הצעד הראשון בצ'אט הבא
-קרא את הקובץ הזה → roadmap **#1-#4 בוצעו** (Scorecard, Expectancy, סף אופטימלי, השוואת וריאנטים).
-**הבא בתור: #5 — מבנה 3-תת-הוראות (A/B/C)**: לבדוק אם אימון ברמת-סיגנל (במקום תת-הוראה) נקי יותר.
-‏שווה גם: לפתוח את הפאנל ולשחק עם הסליידר/ההשוואה על MES (📊 + ⚖), ואז להחליט אם להפוך את הסף
-לפר-כלי אמיתי (דורש שינוי NinjaScript — ראה #3).
-זרימה: כל קוד ב-git, לקמט+לדחוף אחרי כל שינוי משמעותי, לעדכן את הקובץ הזה בסוף.
+
+**נבנה בשיחת 2026-06-17 (הכול ב-git + נבדק, 19 בדיקות-עשן + 7 קצה + תיקוני-באגים):**
+- **רב-TF אוטומטי** — זיהוי TF מהגרף (`bar_data_tf.txt`), וריאנטים מתויגי-TF, active פר-TF,
+  המודל החי עוקב אחרי ה-TF. בפאנל: קבוצות לפי TF, `● live`.
+- **הפרדת אימון/חי** — `bar_data_train_<tf>min.csv` מוקפא (רק גדל); F5 של 5 ימים לא דורס היסטוריה.
+- **יומן + executions-logger** (`journal.py` + `TOAIExecutionLogger.cs`) — לולאה סגורה: fills חיים →
+  `executions.csv` → journal → 📊 Realized.
+- **תיק פר-אסטרטגיה** (`portfolio` flag + `score_<slug>.txt` + ScoreFileName ב-exporter) — מוכן, לא מאוכלס.
+- **מודל-תוחלת** (`expectancy.py`), **סימולטור-sizing** (`sizing.py`), **ייצוא Edgewonk** (`edgewonk.py`, מתויג-ML).
+- כלים בפאנל: 📊 Scorecard (סליידר+optimal+equity), ⚖ Compare, ⊕ portfolio, Export→Edgewonk.
+  ‏main.py: 9 scorecard · 10 journal · 11 expectancy · 12 sizing · 13 edgewonk.
+
+**ההחלטות הפתוחות (תלויות נתונים, לא קוד):**
+1. **תיק חי** — רק כשיהיו 2-3 אסטרטגיות מאומתות (WF>0.55) בקורלציה נמוכה. כרגע יש 1 (Two EMA+PSAR).
+   איחוד-מודל נכשל (WF→0.50); תיק-מפוזר עובד (net/DD פי-2). התשתית מוכנה — לסמן ⊕ ולחווט Order Sets.
+2. **Tier-2 sizing** — להריץ `sizing` (אופ' 12) על **מודל גדול**; לחווט רק אם net/DD עולה משמעותית
+   (‏1/2/3 הנאיבי מזיק). מנגנון: Tier-plots ב-exporter + Order Set לכל רצועת-ציון (ראה §6 בצד ליאור).
+3. **עוד אסטרטגיות/TF** — לאמן 1/3/5 דקות (טען היסטוריה פעם אחת לכל TF), לחפש edge נמוך-קורלציה.
+
+**פתוח בצד ליאור (NinjaScript — ראה §6):** לקמפל מחדש `TOAIExporterGaugeTick` (ping-pong + ScoreFileName),
+ולבדוק את `TOAIExecutionLogger` עם fills אמיתיים.
+
+זרימה: כל קוד ב-git, לקמט+לדחוף אחרי כל שינוי, לעדכן את הקובץ הזה בסוף.
