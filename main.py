@@ -25,8 +25,9 @@ MENU = """
   9. Live scorecard (win-rate + expectancy by score, vs real PnL)
   10. Trade journal (REALIZED results from actual fills)
   11. Expectancy model (train on $ not win/loss — compare + save variant)
-  12. Position sizing (does score-tiered sizing beat uniform?) ← NEW
-  13. Exit
+  12. Position sizing (does score-tiered sizing beat uniform?)
+  13. Export to Edgewonk (.xlsx, tagged with the TOAI score) ← NEW
+  14. Exit
 """
 
 
@@ -152,7 +153,7 @@ def run_expectancy():
 def main():
     while True:
         print(MENU.format(data_dir=config.DATA_DIR))
-        choice = input("Select option [1-13]: ").strip()
+        choice = input("Select option [1-14]: ").strip()
 
         if choice == "1":
             from toai.simulate import write_sample_files
@@ -229,6 +230,17 @@ def main():
                 print(sizing.report(inst))
 
         elif choice == "13":
+            from toai import edgewonk
+            src = input("Folder/file with NinjaTrader exports "
+                        f"(Enter = {config.DATA_ROOT}): ").strip().strip('"')
+            results = (edgewonk.convert_all(src or None)
+                       if not src or not src.lower().endswith((".csv", ".xlsx"))
+                       else [(src, *edgewonk.to_edgewonk(src))])
+            for row in results:
+                print(f"  -> {row[1]}{row[2] if len(row) > 2 else ''}")
+            print(f"\nReady in {config.DATA_ROOT}\\_edgewonk\\ — import the .xlsx into Edgewonk.")
+
+        elif choice == "14":
             sys.exit(0)
 
         else:
