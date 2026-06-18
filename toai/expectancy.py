@@ -60,7 +60,7 @@ def format_comparison(instrument, base, exp) -> str:
         d_exp = exp.allow.expectancy - base.allow.expectancy
         d_total = exp.allow.total_pnl - base.allow.total_pnl
         verdict = ("EXPECTANCY WINS" if d_exp > 0 else
-                   "no improvement — keep win-rate" if d_exp <= 0 else "")
+                   "no improvement — keep win-rate")
         lines += [
             f"  Δ ALLOW expectancy: {d_exp:+.2f}$/trade   "
             f"Δ edge: {d_edge:+.2f}$   Δ total: {d_total:+,.0f}$",
@@ -94,7 +94,8 @@ def _entry_window(df, inst_dir):
     return None
 
 
-def train_expectancy(instrument=None, source_trades=None, base_name=None):
+def train_expectancy(instrument=None, source_trades=None, base_name=None,
+                     timeframe=None):
     """Train a |PnL|-weighted (expectancy) model on the instrument's trades and
     save it as an INACTIVE variant '<base> [expectancy]' — the live model.pkl is
     untouched, so you compare it (⚖) and activate only if it wins.
@@ -136,9 +137,13 @@ def train_expectancy(instrument=None, source_trades=None, base_name=None):
               "threshold_report": None, "wf_threshold_report": None,
               "entry_window": _entry_window(d, inst_dir), "weight_by_pnl": True}
 
-    if base_name is None:
+    if base_name is None or timeframe is None:
         _, ainfo = variants.active_variant(inst_dir)
-        base_name = (ainfo or {}).get("name", "model")
+        ainfo = ainfo or {}
+        if base_name is None:
+            base_name = ainfo.get("name", "model")
+        if timeframe is None:
+            timeframe = ainfo.get("timeframe")
     name = f"{base_name} [expectancy]"
     # Distinct slug: variants.slug() truncates to 60 chars, which would clip the
     # "[expectancy]" suffix and collide with the base variant's slug — so build
@@ -161,6 +166,7 @@ def train_expectancy(instrument=None, source_trades=None, base_name=None):
         "pmv": round(pmv, 4),
         "wf_mean": round(sum(wf) / len(wf), 4) if wf else None,
         "wf": wf,
+        "timeframe": timeframe,
         "active": False,
         "weight_by_pnl": True,
     }
