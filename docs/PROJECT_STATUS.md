@@ -154,7 +154,14 @@ bar_scores כולם נמחקו. ה-`MES` עכשיו **לוח נקי** (variants.
 - **features יחסיים בלבד** (toai/features.py) — לעולם לא רמות מחיר אבסולוטיות.
 
 ## 8. נקודות שחזור
-- ‏git: ענף `claude/magical-dirac-1yd0d4`. ‏HEAD נוכחי ≈ `8d36ad3`.
+- ‏git: ענף `claude/magical-dirac-1yd0d4`. ‏HEAD נוכחי ≈ `779e2b2` (נדחף).
+- **תיקוני 2026-06-18 (נדחפו):** (א) וריאנט expectancy יורש את ה-TF של הבסיס —
+  אחרת לא יכל לעלות לאוויר אחרי Activate (`66eb713`). (ב) `TOAI_Panel.bat` מפעיל
+  עכשיו את ה-Control Panel החדש, לא את gui.py הישן (`28e1517`). (ג) **ה-Scorecard
+  וה-edge footer מנקדים את הווריאנט הפעיל** (snapshot שלו) ולא את ה-export האחרון
+  שאומן — היה מציג edge של אסטרטגיה לא-פעילה (MES החי: ‎+57.94$/PF4.01, לא ‎-13.54$)
+  (`7b2c73a`). (ד) כפתורי "Jump to optimal" בחלון ה-Scorecard (`779e2b2`).
+  אומת חי: BloodHound solver = MLPass≥1 לשני הכיוונים; AddOn ה-executions קומפל.
 - ‏`4c808f3` = v1 יציב (לפני הגרפיקה). גיבוי פיזי: `C:\LIOR_ML_archive\code_v1_working_20260616`.
 - כל מודל/וריאנט ב-`C:\LIOR_ML\<כלי>\models\` (לא ב-git).
 
