@@ -57,15 +57,9 @@ def _norm_avg1(sizes: np.ndarray) -> np.ndarray:
 
 def _active_training_file(instrument):
     """The active variant's own trade snapshot (so we size the model that's
-    actually live), falling back to training_data.csv."""
-    from . import variants
-    from .merge import live_timeframe
-    inst_dir = config.DATA_ROOT / instrument if instrument else config.DATA_ROOT
-    s, _ = variants.active_variant_for_tf(live_timeframe(inst_dir), inst_dir)
-    if s is None:
-        s, _ = variants.active_variant(inst_dir)
-    snap = variants.variant_training_file(s, inst_dir) if s else None
-    return snap or scorecard.training_file_for(instrument)
+    actually live), falling back to training_data.csv. Shared with the
+    scorecard so both evaluate the same (active) model."""
+    return scorecard.active_training_file(instrument)
 
 
 def simulate(instrument, edges=(80, 90), threshold=None, training_file=None):

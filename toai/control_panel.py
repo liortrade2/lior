@@ -71,7 +71,7 @@ class ScorecardWindow(tk.Toplevel):
         self._result = None        # (scorecard|None, err|None), set by the worker
         self._scored = None        # cached out-of-fold scores (for slider/equity)
         self._rec = None           # threshold recommendation
-        self._path = scorecard.training_file_for(inst)
+        self._path = scorecard.active_training_file(inst)
         self._preview = tk.IntVar(value=int(round(config.get_threshold())))
         self._slider_job = None
         self._realized = False     # False = predicted (walk-forward); True = journal

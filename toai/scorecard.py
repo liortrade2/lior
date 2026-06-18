@@ -350,17 +350,35 @@ def compute_scorecard(training_file, threshold: float,
 
 def scorecard_for_instrument(instrument: str | None,
                              use_cache: bool = True) -> Scorecard | None:
-    """Convenience wrapper: locate an instrument's training_data.csv under the
-    data root and the shared threshold, without mutating global config."""
-    inst_dir = config.DATA_ROOT / instrument if instrument else config.DATA_ROOT
-    return compute_scorecard(inst_dir / "training_data.csv",
+    """Convenience wrapper: score the ACTIVE variant's own trades at the shared
+    threshold, without mutating global config. Uses the active variant's snapshot
+    (the model that's actually live), not the live training_data.csv — which holds
+    whatever export was trained LAST and may be a different, inactive strategy."""
+    return compute_scorecard(active_training_file(instrument),
                              config.get_threshold(), instrument,
                              use_cache=use_cache)
 
 
 def training_file_for(instrument: str | None):
+    """The live training_data.csv (the last-trained export). For the active
+    model's own trades use active_training_file()."""
     inst_dir = config.DATA_ROOT / instrument if instrument else config.DATA_ROOT
     return inst_dir / "training_data.csv"
+
+
+def active_training_file(instrument: str | None):
+    """The active variant's own trade snapshot, so the scorecard reflects the
+    model that is actually live for the chart's timeframe. Falls back to the
+    live training_data.csv when there is no active variant / snapshot (legacy
+    single-strategy setups)."""
+    from . import variants
+    from .merge import live_timeframe
+    inst_dir = config.DATA_ROOT / instrument if instrument else config.DATA_ROOT
+    s, _ = variants.active_variant_for_tf(live_timeframe(inst_dir), inst_dir)
+    if s is None:
+        s, _ = variants.active_variant(inst_dir)
+    snap = variants.variant_training_file(s, inst_dir) if s else None
+    return snap or (inst_dir / "training_data.csv")
 
 
 # --------------------------------------------------------------------------- #
