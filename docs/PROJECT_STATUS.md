@@ -128,13 +128,13 @@ bar_scores כולם נמחקו. ה-`MES` עכשיו **לוח נקי** (variants.
    הוא ה-exporter — לקמפל. **כלל**: רק גרף MES אחד רץ (15-דקות), עם היסטוריה מלאה (600 יום) ל-bar_data_train.
 2. **לוודא שה-Control Panel רץ בזמן המסחר** — טוען את המודל הפעיל (Two EMA+PSAR 15-דקות) וקולט executions.
 3. (BBTMP/וריאנט-1 הוצאו משימוש — לא רלוונטי יותר.)
-4. **לבדוק את `TOAIExecutionLogger.cs`** — קומפל בהצלחה ✅; נשאר לאמת שהוא כותב `executions.csv` עם fills
-   אמיתיים בזמן מסחר. ה-AddOn שכותב את ה-fills החיים ל-
-   `C:\LIOR_ML\<כלי>\executions.csv` אוטומטית (סוגר את הלולאה החיה). התקנה **פעם אחת**:
-   NinjaScript Editor → New → AddOn (או הדבק את הקובץ ל-`Documents\NinjaTrader 8\bin\Custom\AddOns\`)
-   → F5. רץ ברקע מההפעלה, ללא חלון. **חשוב**: ה-Control Panel חייב לרוץ בזמן המסחר כדי לקלוט את
-   ה-executions.csv ל-journal.csv לפני שהסשן מתאפס. ה-watch כבר קולט אוטומטית. (חלופה ידנית: ייצוא
-   Trade Performance לאותו שם.)
+4. ✅ **`TOAIExecutionLogger.cs` — אומת חי (2026-06-18).** עסקת-בדיקה ב-Sim101 (MES Long, +10.03$)
+   כתבה `C:\LIOR_ML\MES\executions.csv`, וה-watch קלט אותה ל-`journal.csv` תוך 6ש' (Score 42.5 → SKIP,
+   Variant=Two EMA+PSAR, Source=live). **הלולאה החיה סגורה מקצה-לקצה**: fill → executions.csv (AddOn) →
+   journal.csv (watch, מנוקד מול ה-gate). התקנה **פעם אחת**: NinjaScript Editor → New → AddOn → F5; רץ
+   ברקע ללא חלון. **חשוב**: ה-Control Panel חייב לרוץ בזמן המסחר כדי לקלוט executions.csv ל-journal.csv
+   לפני שהסשן מתאפס (ה-watch קולט אוטומטית). הצעד הבא: לצבור עסקאות חיות → 📊 Scorecard במצב "Realized
+   fills" יראה אם ה-edge מתממש בכסף.
 
 ## 7. 🔥 לקחים/מלכודות (אל תחזור עליהן!)
 - **bar_data ping-pong**: עותק BloodHound רץ על period לא-סטנדרטי (12345) ו"מארכב"=מוחק
@@ -194,7 +194,8 @@ bar_scores כולם נמחקו. ה-`MES` עכשיו **לוח נקי** (variants.
    (‏1/2/3 הנאיבי מזיק). מנגנון: Tier-plots ב-exporter + Order Set לכל רצועת-ציון (ראה §6 בצד ליאור).
 3. **עוד אסטרטגיות/TF** — לאמן 1/3/5 דקות (טען היסטוריה פעם אחת לכל TF), לחפש edge נמוך-קורלציה.
 
-**פתוח בצד ליאור (NinjaScript — ראה §6):** לקמפל מחדש `TOAIExporterGaugeTick` (ping-pong + ScoreFileName),
-ולבדוק את `TOAIExecutionLogger` עם fills אמיתיים.
+**צד ליאור (NinjaScript) — הושלם 2026-06-18:** ✅ `TOAIExporterGaugeTick` קומפל מחדש (ping-pong +
+ScoreFileName); ✅ BloodHound solver = MLPass≥1 לשני הכיוונים; ✅ `TOAIExecutionLogger` אומת חי
+(executions.csv → journal.csv). אין כרגע פריטים פתוחים בצד NinjaScript.
 
 זרימה: כל קוד ב-git, לקמט+לדחוף אחרי כל שינוי, לעדכן את הקובץ הזה בסוף.
