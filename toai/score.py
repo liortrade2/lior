@@ -205,7 +205,6 @@ def watch(interval_seconds: float = 2.0, stop_event=None, reload_event=None,
                 continue
             if mtime == feat_mtimes.get(name):
                 continue
-            feat_mtimes[name] = mtime
             if name not in bundles:
                 try:
                     bundles[name] = load_model()
@@ -219,9 +218,10 @@ def watch(interval_seconds: float = 2.0, stop_event=None, reload_event=None,
                 score = score_latest_bar(bundles[name])
             except Exception as e:
                 # A persistent file lock shouldn't kill the watch — skip this
-                # tick and try again on the next one.
+                # tick and retry on the next one (don't mark this bar as done).
                 print(f"[{name or 'root'}] score skipped (file busy): {e}")
                 continue
+            feat_mtimes[name] = mtime   # mark done only AFTER a successful score
             # Re-read each time so a threshold change in the panel applies
             # immediately, without restarting the watch.
             threshold = config.get_threshold()

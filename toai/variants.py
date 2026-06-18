@@ -17,6 +17,7 @@ any instrument WITHOUT mutating the shared global config that the background
 watch thread relies on.
 """
 import json
+import os
 import shutil
 from datetime import datetime
 
@@ -47,7 +48,14 @@ def _load_registry(inst_dir=None) -> dict:
 
 
 def _save_registry(reg: dict, inst_dir=None):
-    _registry_path(inst_dir).write_text(json.dumps(reg, indent=2))
+    # Atomic write (temp + replace): variants.json is written from both the UI
+    # thread (portfolio toggle) and the watch thread (train/switch), so a plain
+    # write_text could be read half-written or corrupted by a concurrent write.
+    # os.replace is atomic — worst case is a lost update, never a torn file.
+    p = _registry_path(inst_dir)
+    tmp = p.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(reg, indent=2))
+    os.replace(tmp, p)
 
 
 def slug(name: str) -> str:
