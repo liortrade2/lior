@@ -140,6 +140,62 @@ def export_all(tag_score=True):
     return done
 
 
+# --------------------------------------------------------------------------- #
+#  Active-only, per-instrument, chronological export (the panel's button)
+# --------------------------------------------------------------------------- #
+def _source_export_for(name):
+    """The original NinjaTrader trades export a variant was built from. After
+    training the watch archives it to _trained/<name>.csv, so look there first,
+    then the root, then any trades-export whose stem matches the name."""
+    fname = f"{name}.csv"
+    for base in (config.DATA_ROOT / "_trained", config.DATA_ROOT):
+        p = base / fname
+        if p.is_file():
+            return p
+    for base in (config.DATA_ROOT / "_trained", config.DATA_ROOT):
+        if not base.is_dir():
+            continue
+        for p in base.glob("*.csv"):
+            if p.stem == name:
+                return p
+    return None
+
+
+def export_active(instrument, timestamp, tag_score=True):
+    """Export ONLY the instrument's ACTIVE variant to a timestamped Edgewonk
+    .xlsx under _edgewonk/<INSTRUMENT>/, so each click keeps the prior file
+    (chronological, never overwritten). Returns (out_path|None, note)."""
+    from .merge import live_timeframe
+    inst_dir = config.DATA_ROOT / instrument if instrument else config.DATA_ROOT
+    s, info = variants.active_variant_for_tf(live_timeframe(inst_dir), inst_dir)
+    if s is None:
+        s, info = variants.active_variant(inst_dir)
+    if s is None or not info:
+        return None, "no active variant"
+    name = info.get("name", s)
+    src = _source_export_for(name)
+    if src is None:
+        return None, f"no source export found for '{name}' (re-save its backtest)"
+    dest_dir = config.DATA_ROOT / "_edgewonk" / (instrument or "root")
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    out_path = dest_dir / f"{src.stem}_{timestamp}.xlsx"
+    return to_edgewonk(src, out_path=out_path, tag_score=tag_score,
+                       instrument=instrument)
+
+
+def export_active_all(tag_score=True):
+    """Export each instrument's ACTIVE variant into its own _edgewonk/<inst>/
+    folder, all stamped with one shared timestamp. Returns
+    [(instrument, out_path|None, note), …]."""
+    from datetime import datetime
+    ts = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    results = []
+    for inst in (config.list_instruments() or [None]):
+        out, note = export_active(inst, ts, tag_score=tag_score)
+        results.append((inst, out, note))
+    return results
+
+
 if __name__ == "__main__":
     import sys
     if len(sys.argv) > 1:

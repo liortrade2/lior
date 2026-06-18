@@ -671,11 +671,14 @@ class ControlPanel(tk.Tk):
     def _ew_worker(self):
         try:
             from . import edgewonk
-            done = edgewonk.export_all()
-            ok = sum(1 for _, o, _ in done if not str(o).startswith("ERROR"))
-            self._ew_result = (ok, None)
+            # Active variant per instrument -> _edgewonk/<inst>/<name>_<ts>.xlsx
+            # (timestamped, so each export is kept, never overwritten).
+            done = edgewonk.export_active_all()
+            ok = [(i, o) for i, o, _ in done if o is not None]
+            skipped = [(i, n) for i, o, n in done if o is None]
+            self._ew_result = (ok, skipped, None)
         except Exception as e:
-            self._ew_result = (0, str(e))
+            self._ew_result = (None, None, str(e))
 
     def _ew_poll(self):
         if not self.winfo_exists():
@@ -683,15 +686,21 @@ class ControlPanel(tk.Tk):
         if self._ew_result is None:
             self.after(200, self._ew_poll)
             return
-        n, err = self._ew_result
+        ok, skipped, err = self._ew_result
         self.ew_btn.config(state="normal", text="Export → Edgewonk")
         dest = config.DATA_ROOT / "_edgewonk"
         if err:
             messagebox.showwarning("Edgewonk", f"Export failed:\n{err}")
-        elif messagebox.askyesno(
-                "Edgewonk", f"Wrote {n} Edgewonk .xlsx file(s) to:\n{dest}\n\n"
-                "Each trade is tagged with its strategy's TOAI score.\n\n"
-                "Open the folder?"):
+            return
+        lines = [f"  • {i or 'root'}:  {o.parent.name}\\{o.name}" for i, o in ok]
+        skip_txt = ("\n\nSkipped: " + ", ".join(f"{i or 'root'} ({n})"
+                                                for i, n in skipped)) if skipped else ""
+        body = ("\n".join(lines) if lines else "(nothing to export)")
+        if messagebox.askyesno(
+                "Edgewonk",
+                f"Exported the ACTIVE strategy of {len(ok)} instrument(s) to "
+                f"_edgewonk\\<instrument>\\ (timestamped — prior files kept):\n\n"
+                f"{body}{skip_txt}\n\nOpen the folder?"):
             try:
                 os.startfile(str(dest))
             except Exception:
