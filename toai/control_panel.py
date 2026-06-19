@@ -671,9 +671,9 @@ class ControlPanel(tk.Tk):
     def _ew_worker(self):
         try:
             from . import edgewonk
-            # Active variant per instrument -> _edgewonk/<inst>/<name>_<ts>.xlsx
-            # (timestamped, so each export is kept, never overwritten).
-            done = edgewonk.export_active_all()
+            # Manual 'export now': force a fresh per-day file for each instrument
+            # (the watch also writes these automatically as live fills land).
+            done = edgewonk.export_active_all(force=True)
             ok = [(i, o) for i, o, _ in done if o is not None]
             skipped = [(i, n) for i, o, n in done if o is None]
             self._ew_result = (ok, skipped, None)

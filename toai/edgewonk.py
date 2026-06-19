@@ -163,13 +163,17 @@ def _journal_scores(inst_dir) -> dict:
     return out
 
 
-def export_live_by_day(instrument, tag_score=True):
+def export_live_by_day(instrument, tag_score=True, force=False):
     """Write ONE Edgewonk .xlsx per trading day from the instrument's realized
     fills (executions.csv), tagged with each trade's exact gate score. Files are
     named by the trade DATE (<inst>_live_<YYYY-MM-DD>.xlsx) under
     _edgewonk/<INSTRUMENT>/, so the folder accumulates one file per day and a
     same-day refresh just rewrites that day's file (never loses prior days).
-    Returns [(date_str, out_path), …]."""
+
+    Change-aware: a day's file is rewritten only when its trade count changed
+    (i.e. new fills landed), so the auto-export doesn't keep touching unchanged
+    files. force=True rewrites regardless (the manual 'export now' button).
+    Returns [(date_str, out_path), …] for the files actually written."""
     inst_dir = config.DATA_ROOT / instrument if instrument else config.DATA_ROOT
     try:
         trades = pd.read_csv(inst_dir / "executions.csv")
@@ -189,6 +193,15 @@ def export_live_by_day(instrument, tag_score=True):
 
     written = []
     for day, grp in trades.groupby("_date"):
+        out_path = dest_dir / f"{instrument or 'root'}_live_{day}.xlsx"
+        # Skip the rewrite if this day's file already holds these trades (no new
+        # fills) — unless force=True (manual export-now button).
+        if not force and out_path.exists():
+            try:
+                if len(pd.read_excel(out_path)) == len(grp):
+                    continue
+            except Exception:
+                pass   # unreadable -> rewrite it
         out = pd.DataFrame()
         for col in EDGEWONK_COLUMNS:
             out[col] = (grp[col].values if col in grp.columns
@@ -202,27 +215,39 @@ def export_live_by_day(instrument, tag_score=True):
                 s = scores.get(t)
                 names.append(f"{n} | ML:{s:.0f}" if s is not None and s == s else n)
             out["Entry name"] = names
-        out_path = dest_dir / f"{instrument or 'root'}_live_{day}.xlsx"
         out.to_excel(out_path, index=False, engine="openpyxl")
         written.append((str(day), out_path))
     return written
 
 
-def export_active(instrument, tag_score=True):
-    """Per-day live export for one instrument. Returns (latest_path|None, note)."""
-    written = export_live_by_day(instrument, tag_score=tag_score)
-    if not written:
-        return None, "no live trades yet"
-    written.sort(key=lambda dp: dp[0])
-    return written[-1][1], f"{len(written)} day-file(s)"
+def _has_live_trades(instrument) -> bool:
+    inst_dir = config.DATA_ROOT / instrument if instrument else config.DATA_ROOT
+    try:
+        return not pd.read_csv(inst_dir / "executions.csv").empty
+    except (OSError, ValueError, pd.errors.EmptyDataError):
+        return False
 
 
-def export_active_all(tag_score=True):
+def export_active(instrument, tag_score=True, force=False):
+    """Per-day live export for one instrument. With force=True (manual button)
+    always rewrites today's file. Returns (latest_path|None, note)."""
+    written = export_live_by_day(instrument, tag_score=tag_score, force=force)
+    if written:
+        written.sort(key=lambda dp: dp[0])
+        return written[-1][1], f"{len(written)} day-file(s)"
+    # Nothing written: distinguish 'no trades' from 'already up to date'.
+    if _has_live_trades(instrument):
+        return None, "already up to date"
+    return None, "no live trades yet"
+
+
+def export_active_all(tag_score=True, force=False):
     """Per-day live export for every instrument into its own _edgewonk/<inst>/
-    folder. Returns [(instrument, latest_path|None, note), …]."""
+    folder. force=True (manual button) rewrites today's files regardless.
+    Returns [(instrument, latest_path|None, note), …]."""
     results = []
     for inst in (config.list_instruments() or [None]):
-        out, note = export_active(inst, tag_score=tag_score)
+        out, note = export_active(inst, tag_score=tag_score, force=force)
         results.append((inst, out, note))
     return results
 
