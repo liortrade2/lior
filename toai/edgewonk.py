@@ -163,52 +163,66 @@ def _journal_scores(inst_dir) -> dict:
     return out
 
 
-def export_active(instrument, timestamp, tag_score=True):
-    """Export the instrument's REALIZED live trades (executions.csv) to a
-    timestamped Edgewonk .xlsx under _edgewonk/<INSTRUMENT>/ — NOT the backtest.
-    Each click keeps the prior file (chronological, never overwritten).
-    Returns (out_path|None, note)."""
+def export_live_by_day(instrument, tag_score=True):
+    """Write ONE Edgewonk .xlsx per trading day from the instrument's realized
+    fills (executions.csv), tagged with each trade's exact gate score. Files are
+    named by the trade DATE (<inst>_live_<YYYY-MM-DD>.xlsx) under
+    _edgewonk/<INSTRUMENT>/, so the folder accumulates one file per day and a
+    same-day refresh just rewrites that day's file (never loses prior days).
+    Returns [(date_str, out_path), …]."""
     inst_dir = config.DATA_ROOT / instrument if instrument else config.DATA_ROOT
-    src = inst_dir / "executions.csv"
     try:
-        trades = pd.read_csv(src)
+        trades = pd.read_csv(inst_dir / "executions.csv")
     except (OSError, ValueError, pd.errors.EmptyDataError):
-        return None, "no live trades yet (executions.csv not found)"
+        return []
+    if trades.empty or "Entry time" not in trades.columns:
+        return []
+    et = pd.to_datetime(trades["Entry time"], errors="coerce")
+    trades = trades.assign(_date=et.dt.date, _et=et)
+    trades = trades.dropna(subset=["_date"])
     if trades.empty:
-        return None, "no live trades yet (executions.csv empty)"
+        return []
 
-    out = pd.DataFrame()
-    for col in EDGEWONK_COLUMNS:
-        out[col] = trades[col] if col in trades.columns else ""
-
-    if tag_score:
-        scores = _journal_scores(inst_dir)
-        et = (pd.to_datetime(trades["Entry time"], errors="coerce")
-              if "Entry time" in trades.columns else None)
-        base = out["Entry name"].astype(str)
-        names = []
-        for i in range(len(out)):
-            n = base.iloc[i].strip() or "Live"
-            s = scores.get(et.iloc[i]) if et is not None else None
-            names.append(f"{n} | ML:{s:.0f}" if s is not None and s == s else n)
-        out["Entry name"] = names
-
+    scores = _journal_scores(inst_dir) if tag_score else {}
     dest_dir = config.DATA_ROOT / "_edgewonk" / (instrument or "root")
     dest_dir.mkdir(parents=True, exist_ok=True)
-    out_path = dest_dir / f"{instrument or 'root'}_live_{timestamp}.xlsx"
-    out.to_excel(out_path, index=False, engine="openpyxl")
-    return out_path, f"{len(out)} live trades"
+
+    written = []
+    for day, grp in trades.groupby("_date"):
+        out = pd.DataFrame()
+        for col in EDGEWONK_COLUMNS:
+            out[col] = (grp[col].values if col in grp.columns
+                        else [""] * len(grp))
+        if tag_score:
+            base = out["Entry name"].astype(str).tolist()
+            ets = grp["_et"].tolist()
+            names = []
+            for n, t in zip(base, ets):
+                n = n.strip() or "Live"
+                s = scores.get(t)
+                names.append(f"{n} | ML:{s:.0f}" if s is not None and s == s else n)
+            out["Entry name"] = names
+        out_path = dest_dir / f"{instrument or 'root'}_live_{day}.xlsx"
+        out.to_excel(out_path, index=False, engine="openpyxl")
+        written.append((str(day), out_path))
+    return written
+
+
+def export_active(instrument, tag_score=True):
+    """Per-day live export for one instrument. Returns (latest_path|None, note)."""
+    written = export_live_by_day(instrument, tag_score=tag_score)
+    if not written:
+        return None, "no live trades yet"
+    written.sort(key=lambda dp: dp[0])
+    return written[-1][1], f"{len(written)} day-file(s)"
 
 
 def export_active_all(tag_score=True):
-    """Export each instrument's REALIZED live trades into its own
-    _edgewonk/<inst>/ folder, all stamped with one shared timestamp. Returns
-    [(instrument, out_path|None, note), …]."""
-    from datetime import datetime
-    ts = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    """Per-day live export for every instrument into its own _edgewonk/<inst>/
+    folder. Returns [(instrument, latest_path|None, note), …]."""
     results = []
     for inst in (config.list_instruments() or [None]):
-        out, note = export_active(inst, ts, tag_score=tag_score)
+        out, note = export_active(inst, tag_score=tag_score)
         results.append((inst, out, note))
     return results
 

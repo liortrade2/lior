@@ -282,4 +282,14 @@ def watch(interval_seconds: float = 2.0, stop_event=None, reload_event=None,
                     print(f"[{name or 'root'}] journal: +{added} live fills logged")
             except Exception as e:
                 print(f"[{name or 'root'}] journal (live) skipped: {e}")
+            # Auto-save the Edgewonk per-day file from the realized fills, so the
+            # _edgewonk/<inst>/ folder fills up with one .xlsx per trading day on
+            # its own — today's file is refreshed as fills land, complete by EOD.
+            try:
+                from . import edgewonk
+                wrote = edgewonk.export_live_by_day(name)
+                if wrote:
+                    print(f"[{name or 'root'}] edgewonk: {wrote[-1][1].name}")
+            except Exception as e:
+                print(f"[{name or 'root'}] edgewonk auto-export skipped: {e}")
         time.sleep(interval_seconds)
