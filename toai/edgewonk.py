@@ -142,30 +142,89 @@ def export_all(tag_score=True):
 
 # --------------------------------------------------------------------------- #
 #  Live-trades export (the panel's button) — your REAL fills, not the backtest.
-#  Source = <inst>/executions.csv (the AddOn's realized fills, full NinjaTrader
-#  columns incl. prices), tagged with the EXACT gate score from journal.csv.
-#  Per-instrument folder + timestamp, so each click keeps the prior file.
+#  Source = <inst>/executions.csv (the AddOn's realized fills). Written in
+#  Edgewonk's NATIVE import layout (import with the "Edgewonk" importer, not
+#  NinjaTrader), so we can carry the ML data as numeric Custom Stats:
+#    Custom Stat 1 = ML score · 2 = Verdict · 3 = Variant · 4 = Threshold.
+#  Commission + Highest/Lowest price (MAE/MFE) fill in once the AddOn writes
+#  them to executions.csv (recompile TOAIExecutionLogger). One file per day.
 # --------------------------------------------------------------------------- #
-def _journal_scores(inst_dir) -> dict:
-    """{entry-timestamp -> Score} from the realized journal, so each live fill
-    carries the exact score the gate gave it (no re-scoring)."""
+EDGEWONK_NATIVE_COLUMNS = [
+    "Opening Time", "Type [buy/sell]", "Symbol", "Setup", "Size / Quantity",
+    "Closing Time", "Entry Price", "Closing Price", "Swap", "Commission",
+    "Net Profit", "Stop Loss (optional)", "Take Profit(optional)",
+    "Highest price (optional)", "Lowest price (optional)", "Notes",
+    "Pre Trade Comments", "Entry Comments", "Trade Management", "Exit Comments",
+    "Breakeven?",
+] + [f"Custom Stat {i}" for i in range(1, 21)]
+
+
+def _journal_lookup(inst_dir) -> dict:
+    """{entry-timestamp -> {Score, Verdict, Variant, Threshold}} from the
+    realized journal, so each live fill carries the exact values the gate used
+    (no re-scoring)."""
     out = {}
     try:
         j = pd.read_csv(inst_dir / "journal.csv")
     except (OSError, ValueError, pd.errors.EmptyDataError):
         return out
-    if "DateTime" not in j.columns or "Score" not in j.columns:
+    if "DateTime" not in j.columns:
         return out
     for _, r in j.iterrows():
         ts = pd.to_datetime(r["DateTime"], errors="coerce")
         if pd.notna(ts):
-            out[ts] = r["Score"]
+            out[ts] = {k: r.get(k) for k in
+                       ("Score", "Verdict", "Variant", "Threshold")}
     return out
 
 
+def _native_rows(grp, jlook) -> pd.DataFrame:
+    """Build Edgewonk-native rows for one day's executions group."""
+    n = len(grp)
+
+    def col(name, default=""):
+        return list(grp[name]) if name in grp.columns else [default] * n
+
+    def num(x):
+        return x if (x is not None and x == x) else ""   # drop NaN/None -> blank
+
+    out = {c: [""] * n for c in EDGEWONK_NATIVE_COLUMNS}
+    pos = col("Market pos.", "")
+    out["Opening Time"] = [str(x) for x in col("Entry time")]
+    out["Closing Time"] = [str(x) for x in col("Exit time")]
+    out["Type [buy/sell]"] = ["BUY" if str(p).lower().startswith("long")
+                              else "SELL" for p in pos]
+    out["Symbol"] = col("Instrument")
+    out["Size / Quantity"] = col("Qty", 1)
+    out["Entry Price"] = col("Entry price")
+    out["Closing Price"] = col("Exit price")
+    out["Net Profit"] = col("Profit")
+    out["Commission"] = [num(x) for x in col("Commission", "")]
+    out["Highest price (optional)"] = [num(x) for x in col("Highest price", "")]
+    out["Lowest price (optional)"] = [num(x) for x in col("Lowest price", "")]
+    out["Breakeven?"] = ["No"] * n
+
+    setups, st1, st2, st3, st4 = [], [], [], [], []
+    for t in grp["_et"]:
+        info = jlook.get(t, {})
+        sc, vr, va, th = (info.get("Score"), info.get("Verdict"),
+                          info.get("Variant"), info.get("Threshold"))
+        setups.append(va if (va and va == va) else "TOAI")
+        st1.append(f"{sc:.0f}" if (sc is not None and sc == sc) else "")
+        st2.append(vr if (vr and vr == vr) else "")
+        st3.append(va if (va and va == va) else "")
+        st4.append(num(th))
+    out["Setup"] = setups
+    out["Custom Stat 1"] = st1   # ML score
+    out["Custom Stat 2"] = st2   # Verdict (ALLOW/SKIP)
+    out["Custom Stat 3"] = st3   # Variant (strategy)
+    out["Custom Stat 4"] = st4   # Threshold used
+    return pd.DataFrame(out, columns=EDGEWONK_NATIVE_COLUMNS)
+
+
 def export_live_by_day(instrument, tag_score=True, force=False):
-    """Write ONE Edgewonk .xlsx per trading day from the instrument's realized
-    fills (executions.csv), tagged with each trade's exact gate score. Files are
+    """Write ONE Edgewonk-native .xlsx per trading day from the instrument's
+    realized fills (executions.csv), with the ML data as Custom Stats. Files are
     named by the trade DATE (<inst>_live_<YYYY-MM-DD>.xlsx) under
     _edgewonk/<INSTRUMENT>/, so the folder accumulates one file per day and a
     same-day refresh just rewrites that day's file (never loses prior days).
@@ -187,7 +246,7 @@ def export_live_by_day(instrument, tag_score=True, force=False):
     if trades.empty:
         return []
 
-    scores = _journal_scores(inst_dir) if tag_score else {}
+    jlook = _journal_lookup(inst_dir) if tag_score else {}
     dest_dir = config.DATA_ROOT / "_edgewonk" / (instrument or "root")
     dest_dir.mkdir(parents=True, exist_ok=True)
 
@@ -202,19 +261,7 @@ def export_live_by_day(instrument, tag_score=True, force=False):
                     continue
             except Exception:
                 pass   # unreadable -> rewrite it
-        out = pd.DataFrame()
-        for col in EDGEWONK_COLUMNS:
-            out[col] = (grp[col].values if col in grp.columns
-                        else [""] * len(grp))
-        if tag_score:
-            base = out["Entry name"].astype(str).tolist()
-            ets = grp["_et"].tolist()
-            names = []
-            for n, t in zip(base, ets):
-                n = n.strip() or "Live"
-                s = scores.get(t)
-                names.append(f"{n} | ML:{s:.0f}" if s is not None and s == s else n)
-            out["Entry name"] = names
+        out = _native_rows(grp, jlook)
         out.to_excel(out_path, index=False, engine="openpyxl")
         written.append((str(day), out_path))
     return written

@@ -154,7 +154,9 @@ namespace NinjaTrader.NinjaScript.AddOns
             string dest = Path.Combine(dir, "executions.csv");
 
             StringBuilder sb = new StringBuilder();
-            sb.AppendLine("Trade number,Instrument,Account,Market pos.,Qty,Entry price,Exit price,Entry time,Exit time,Profit");
+            // Commission + MAE/MFE + Highest/Lowest price feed Edgewonk's
+            // optional fields (the TOAI Python export maps them straight over).
+            sb.AppendLine("Trade number,Instrument,Account,Market pos.,Qty,Entry price,Exit price,Entry time,Exit time,Profit,Commission,MAE,MFE,Highest price,Lowest price");
             foreach (Trade t in trades)
             {
                 Execution en = t.Entry;
@@ -165,10 +167,25 @@ namespace NinjaTrader.NinjaScript.AddOns
                 double entryPrice = en != null ? en.Price : 0;
                 double exitPrice = ex != null ? ex.Price : 0;
 
+                double commission = (en != null ? en.Commission : 0) + (ex != null ? ex.Commission : 0);
+                // MAE/MFE come in $ — convert to points via the contract's point
+                // value, then to the actual high/low price the trade reached.
+                double maeCur = t.MaeCurrency;
+                double mfeCur = t.MfeCurrency;
+                double pv = (en != null && en.Instrument != null)
+                    ? en.Instrument.MasterInstrument.PointValue : 0;
+                double denom = pv * t.Quantity;
+                double maePts = denom > 0 ? maeCur / denom : 0;
+                double mfePts = denom > 0 ? mfeCur / denom : 0;
+                bool isLong = en != null && en.MarketPosition == MarketPosition.Long;
+                double highest = isLong ? entryPrice + mfePts : entryPrice + maePts;
+                double lowest = isLong ? entryPrice - maePts : entryPrice - mfePts;
+
                 sb.AppendLine(string.Format(CultureInfo.InvariantCulture,
-                    "{0},{1},{2},{3},{4},{5},{6},{7},{8},{9}",
+                    "{0},{1},{2},{3},{4},{5},{6},{7},{8},{9},{10},{11},{12},{13},{14}",
                     t.TradeNumber, inst, account.Name, pos, t.Quantity,
-                    entryPrice, exitPrice, entryTime, exitTime, t.ProfitCurrency));
+                    entryPrice, exitPrice, entryTime, exitTime, t.ProfitCurrency,
+                    commission, maeCur, mfeCur, highest, lowest));
             }
 
             // Atomic-ish write (temp + overwrite) so the Python watch never
