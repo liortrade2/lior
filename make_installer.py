@@ -35,6 +35,9 @@ INCLUDE_FILES = [
     "TOAI_Train.bat",
     "TOAI_Update.bat",
     "TOAI_Backup.bat",
+    "TOAI_StartDay.bat",
+    "TOAI_EndDay.bat",
+    "TOAI_Schedule.bat",
 ]
 INCLUDE_DIRS = [
     "toai",

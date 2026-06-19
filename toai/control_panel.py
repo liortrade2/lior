@@ -670,6 +670,11 @@ class ControlPanel(tk.Tk):
         self.cache_btn = ttk.Button(top, text="🧹 Clear NT cache",
                                     command=self._clear_nt_cache)
         self.cache_btn.pack(side="left", padx=(8, 0))
+        self.start_btn = ttk.Button(top, text="🌅 Start day",
+                                    command=self._start_day)
+        self.start_btn.pack(side="left", padx=(8, 0))
+        self.end_btn = ttk.Button(top, text="🌙 End day", command=self._end_day)
+        self.end_btn.pack(side="left", padx=(4, 0))
 
         ttk.Button(top, text="Set", width=4, command=self._set_threshold).pack(side="right")
         self.thr_var = tk.StringVar(value=f"{config.get_threshold():g}")
@@ -792,6 +797,70 @@ class ControlPanel(tk.Tk):
             messagebox.showinfo(
                 "Clear NT cache",
                 msg + "\n\nReconnect / restart NinjaTrader to re-download data.")
+
+    # ---------- start / end of day routines ----------
+    def _start_day(self):
+        if not messagebox.askyesno(
+                "Start of day",
+                "Start-of-day routine:\n  1. Clear NinjaTrader data cache\n"
+                "  2. Launch NinjaTrader\n\n"
+                "Make sure NinjaTrader is CLOSED first. Run now?",
+                icon="question", default="no"):
+            return
+        self.start_btn.config(state="disabled", text="Starting…")
+        self._routine_result = None
+        threading.Thread(target=lambda: self._routine_worker("start"),
+                         daemon=True).start()
+        self.after(200, self._routine_poll)
+
+    def _end_day(self):
+        if not messagebox.askyesno(
+                "End of day",
+                "End-of-day routine:\n  1. Save the Edgewonk journal files\n"
+                "  2. Close NinjaTrader (graceful)\n\nRun now?",
+                icon="question", default="no"):
+            return
+        self.end_btn.config(state="disabled", text="Ending…")
+        self._routine_result = None
+        threading.Thread(target=lambda: self._routine_worker("end"),
+                         daemon=True).start()
+        self.after(200, self._routine_poll)
+
+    def _routine_worker(self, which):
+        try:
+            from . import routines
+            r = (routines.start_of_day() if which == "start"
+                 else routines.end_of_day())
+            self._routine_result = (which, r, None)
+        except Exception as e:
+            self._routine_result = (which, None, str(e))
+
+    def _routine_poll(self):
+        if not self.winfo_exists():
+            return
+        if self._routine_result is None:
+            self.after(200, self._routine_poll)
+            return
+        which, r, err = self._routine_result
+        self.start_btn.config(state="normal", text="🌅 Start day")
+        self.end_btn.config(state="normal", text="🌙 End day")
+        if err:
+            messagebox.showerror("Routine", f"Failed:\n{err}")
+            return
+        if which == "start":
+            c = r.get("cache") or {}
+            msg = (f"Cache: cleared {c.get('removed', 0)} items, "
+                   f"{c.get('freed_mb', 0):.1f} MB\n"
+                   f"NinjaTrader: {'launched' if r.get('launched') else 'NOT launched'}")
+        else:
+            cl = r.get("closed") or {}
+            msg = (f"Edgewonk: saved {len(r['exported'])} instrument(s)\n"
+                   f"NinjaTrader: {cl.get('detail', '-')}")
+        if r["errors"]:
+            messagebox.showwarning(
+                which.title(), msg + "\n\n⚠ " + "\n".join(r["errors"]))
+        else:
+            messagebox.showinfo(which.title(), msg)
 
     def _signature(self):
         from .merge import live_timeframe
