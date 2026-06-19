@@ -267,10 +267,76 @@ def _native_rows(grp, jlook) -> pd.DataFrame:
     return df
 
 
+# Columns Edgewonk's NinjaTrader importer formats as real Excel datetimes.
+NT_DATE_COLUMNS = ("Entry time", "Exit time")
+
+
+def _nt_live_rows(grp, jlook) -> pd.DataFrame:
+    """Build rows in Edgewonk's NinjaTrader-importer layout (EDGEWONK_COLUMNS)
+    for one day's executions. This is the layout Edgewonk's *NinjaTrader*
+    importer expects — unlike the Generic importer, it reads NinjaTrader's real
+    Excel datetimes correctly (the Generic one mangled them to 1899). The ML
+    score/verdict ride in 'Entry name' and the variant in 'Strategy', since this
+    layout has no Custom Stats columns."""
+    n = len(grp)
+
+    def col(name, default=""):
+        return list(grp[name]) if name in grp.columns else [default] * n
+
+    def num(x):
+        return x if (x is not None and x == x) else ""
+
+    out = {c: [""] * n for c in EDGEWONK_COLUMNS}
+    out["Trade number"] = col("Trade number", "") or list(range(1, n + 1))
+    out["Instrument"] = col("Instrument")
+    out["Account"] = col("Account")
+    out["Market pos."] = col("Market pos.")
+    out["Qty"] = col("Qty", 1)
+    out["Entry price"] = col("Entry price")
+    out["Exit price"] = col("Exit price")
+    out["Entry time"] = [_to_dt(x) for x in col("Entry time")]
+    out["Exit time"] = [_to_dt(x) for x in col("Exit time")]
+    out["Profit"] = col("Profit")
+    out["Commission"] = [num(x) for x in col("Commission", "")]
+    out["MAE"] = [num(x) for x in col("MAE", "")]
+    out["MFE"] = [num(x) for x in col("MFE", "")]
+
+    # Cumulative net profit — Edgewonk's equity curve uses it.
+    cum, run = [], 0.0
+    for p in out["Profit"]:
+        try:
+            run += float(p)
+        except (TypeError, ValueError):
+            pass
+        cum.append(round(run, 2))
+    out["Cum. net profit"] = cum
+
+    # ML tag in Entry name; variant in Strategy — the data this layout can carry.
+    strat, entry_name = [], []
+    for t in grp["_et"]:
+        info = jlook.get(t, {})
+        sc, vr, va = info.get("Score"), info.get("Verdict"), info.get("Variant")
+        strat.append(va if (va and va == va) else "TOAI")
+        tag = []
+        if sc is not None and sc == sc:
+            tag.append(f"ML:{sc:.0f}")
+        if vr and vr == vr:
+            tag.append(str(vr))
+        entry_name.append(" ".join(tag))
+    out["Strategy"] = strat
+    out["Entry name"] = entry_name
+
+    df = pd.DataFrame(out, columns=EDGEWONK_COLUMNS)
+    for c in NT_DATE_COLUMNS:
+        df[c] = pd.to_datetime(df[c], errors="coerce")
+    return df
+
+
 def export_live_by_day(instrument, tag_score=True, force=False):
-    """Write ONE Edgewonk-native .xlsx per trading day from the instrument's
-    realized fills (executions.csv), with the ML data as Custom Stats. Files are
-    named by the trade DATE (<inst>_live_<YYYY-MM-DD>.xlsx) under
+    """Write ONE .xlsx per trading day (Edgewonk NinjaTrader-importer layout)
+    from the instrument's realized fills (executions.csv), ML score/verdict in
+    'Entry name' and variant in 'Strategy'. Files are named by the trade DATE
+    (<inst>_live_<YYYY-MM-DD>.xlsx) under
     _edgewonk/<INSTRUMENT>/, so the folder accumulates one file per day and a
     same-day refresh just rewrites that day's file (never loses prior days).
 
@@ -306,16 +372,16 @@ def export_live_by_day(instrument, tag_score=True, force=False):
                     continue
             except Exception:
                 pass   # unreadable -> rewrite it
-        out = _native_rows(grp, jlook)
+        # NinjaTrader-importer layout — the path Edgewonk reads reliably.
+        out = _nt_live_rows(grp, jlook)
         with pd.ExcelWriter(out_path, engine="openpyxl",
                             datetime_format=EDGEWONK_XLSX_DATE_FMT) as xl:
             out.to_excel(xl, index=False)
-            # Pin the date-cell number format explicitly (pandas' datetime_format
-            # doesn't always win over openpyxl's default) so the displayed date
-            # matches the template's expected format.
+            # Pin the date-cell number format (pandas' datetime_format doesn't
+            # always win over openpyxl's default).
             ws = xl.sheets[list(xl.sheets)[0]]
             hdr = [c.value for c in ws[1]]
-            for name in ("Opening Time", "Closing Time"):
+            for name in NT_DATE_COLUMNS:
                 ci = hdr.index(name) + 1
                 for r in range(2, ws.max_row + 1):
                     ws.cell(row=r, column=ci).number_format = EDGEWONK_XLSX_DATE_FMT
