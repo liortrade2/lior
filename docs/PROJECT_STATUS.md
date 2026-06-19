@@ -204,6 +204,10 @@ bar_scores כולם נמחקו. ה-`MES` עכשיו **לוח נקי** (variants.
 "עם edge", איזו "חלשה", כל AUC/WF) נמדדו על נתונים שנמחקו ו**אסור לצטט אותם**. המסגרת
 תקינה — רק הנתונים והמסקנות אופסו.
 
+> ⏵ **הריצה הנוכחית של 1a/MES היא ב-PLAYBACK** (Market Replay, שורש `C:\LIOR_ML_PLAYBACK`) —
+> כל המספרים שנראו (1a PMV 0.59 / WF 0.56, scorecard, "edge") הם **replay, לא כסף חי**. הפאנל
+> וה-Scorecard מסמנים עכשיו PLAYBACK בראש החלון, ומילת ה-drift היא "replay edge" (לא "live").
+
 ### 🧪 המבחן ל-edge אמיתי (לא השתנה — 3 תנאים יחד):
 ‏WF-AUC **>0.55** + win% עולה מונוטונית עם הציון + עקומת ALLOW מעל "לסחור הכול".
 כלי מוכן לכך: **`python -m toai.edge_scan '<glob ל-*_training.csv>'`** — בדיקה read-only

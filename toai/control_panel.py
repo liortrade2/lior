@@ -23,6 +23,7 @@ from . import config, journal, scorecard, variants
 from .score import watch
 
 GREEN, RED, MUTED = "#1b8a3a", "#c0392b", "#8a8a8a"
+PLAYBACK_BG, PLAYBACK_FG = "#8e44ad", "#ffffff"  # replay banner — never confuse with live
 
 
 def _inst_dir(inst):
@@ -110,13 +111,18 @@ class ScorecardWindow(tk.Toplevel):
         self._preview = tk.IntVar(value=int(round(config.get_threshold(_inst_dir(inst)))))
         self._slider_job = None
         self._realized = False     # False = predicted (walk-forward); True = journal
-        self.title(f"Live Scorecard — {inst}")
+        sc_title = ("PLAYBACK Scorecard" if config.IS_PLAYBACK else "Live Scorecard")
+        self.title(f"{sc_title} — {inst}")
         self.geometry("720x860")
         self.minsize(600, 520)
 
+        if config.IS_PLAYBACK:
+            tk.Label(self, bg=PLAYBACK_BG, fg=PLAYBACK_FG, font=("Segoe UI", 10, "bold"),
+                     text="⏵ PLAYBACK — replayed fills, not live money").pack(fill="x")
         top = ttk.Frame(self, padding=10)
         top.pack(fill="x")
-        ttk.Label(top, text=f"Live Scorecard — {inst}",
+        ttk.Label(top, text=f"{sc_title} — {inst}",
+                  foreground=(PLAYBACK_BG if config.IS_PLAYBACK else "#000000"),
                   font=("Segoe UI", 14, "bold")).pack(side="left")
         self.refresh_btn = ttk.Button(top, text="Refresh", command=self._load)
         self.refresh_btn.pack(side="right")
@@ -633,7 +639,8 @@ class VariantCompareWindow(tk.Toplevel):
 class ControlPanel(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("TOAI Control Panel")
+        self.title("TOAI Control Panel"
+                   + (" — PLAYBACK (replay, not live)" if config.IS_PLAYBACK else ""))
         self.geometry("740x640")
         self.minsize(580, 420)
 
@@ -662,9 +669,19 @@ class ControlPanel(tk.Tk):
 
     # ---------- layout ----------
     def _build(self):
+        # PLAYBACK banner — a loud reminder that every number below comes from
+        # replayed history (Playback101 / C:\LIOR_ML_PLAYBACK), not real fills.
+        if config.IS_PLAYBACK:
+            banner = tk.Label(
+                self, bg=PLAYBACK_BG, fg=PLAYBACK_FG, font=("Segoe UI", 11, "bold"),
+                text="⏵ PLAYBACK MODE — replay data, NOT live trading "
+                     "(root: C:\\LIOR_ML_PLAYBACK)")
+            banner.pack(fill="x")
         top = ttk.Frame(self, padding=10)
         top.pack(fill="x")
-        ttk.Label(top, text="TOAI control panel",
+        ttk.Label(top, text="TOAI control panel"
+                            + ("  ·  PLAYBACK" if config.IS_PLAYBACK else ""),
+                  foreground=(PLAYBACK_BG if config.IS_PLAYBACK else "#000000"),
                   font=("Segoe UI", 15, "bold")).pack(side="left")
         self.ew_btn = ttk.Button(top, text="Export → Edgewonk",
                                  command=self._export_edgewonk)

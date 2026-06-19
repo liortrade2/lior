@@ -53,14 +53,17 @@ def check(instrument) -> dict:
         bt = rl = None
     if bt and rl and rl.allow.n >= MIN_REALIZED:
         be, re = bt.allow.expectancy, rl.allow.expectancy
+        # In Playback the "realized" fills are replayed, not real money — so
+        # don't label them "live".
+        word = "replay" if config.IS_PLAYBACK else "live"
         if re < 0 <= be:
             out["drift"] = "warn"
             out["messages"].append(
-                f"live edge {re:+.2f}$ vs backtest {be:+.2f}$ — edge gone live")
+                f"{word} edge {re:+.2f}$ vs backtest {be:+.2f}$ — edge gone {word}")
         elif be > 0 and re < be * 0.5:
             out["drift"] = "warn"
             out["messages"].append(
-                f"live edge {re:+.2f}$ < ½ of backtest {be:+.2f}$ — decaying")
+                f"{word} edge {re:+.2f}$ < ½ of backtest {be:+.2f}$ — decaying")
         else:
             out["drift"] = "ok"
     return out

@@ -24,6 +24,13 @@ else:
 # threshold.txt always stays at the ROOT — one threshold for all charts.
 INSTRUMENT = os.environ.get("TOAI_INSTRUMENT") or None
 
+# PLAYBACK vs LIVE. TOAI_Playback.bat points DATA_ROOT at C:\LIOR_ML_PLAYBACK
+# (NinjaTrader Market Replay / Playback101). Everything the panel shows then
+# comes from replayed history, NOT real fills — so the UI must say so and must
+# not call replay results "live". Detected purely from the root path.
+IS_PLAYBACK = "PLAYBACK" in str(DATA_ROOT).upper()
+MODE_LABEL = "PLAYBACK" if IS_PLAYBACK else "LIVE"
+
 THRESHOLD_FILE = DATA_ROOT / "threshold.txt"
 # Manual training-timeframe override (None/"auto" = auto-detect from the export
 # file name "…Xmin…", falling back to the chart's current TF). Set from the

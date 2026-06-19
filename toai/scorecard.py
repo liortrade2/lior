@@ -447,12 +447,15 @@ def _rr(rr) -> str:
 
 def format_scorecard(sc: Scorecard) -> str:
     head = sc.instrument or "root"
-    basis = ("realized — actual fills (journal)" if sc.realized
+    # In Playback the journalled fills are replayed, not live money.
+    realized_word = ("replay — replayed fills (journal)" if config.IS_PLAYBACK
+                     else "realized — actual fills (journal)")
+    basis = (realized_word if sc.realized
              else "walk-forward, out-of-sample" if sc.out_of_sample
              else "IN-SAMPLE (too few trades — optimistic!)")
     lines = [
         "=" * 66,
-        f"  LIVE SCORECARD - {head}",
+        f"  {'PLAYBACK' if config.IS_PLAYBACK else 'LIVE'} SCORECARD - {head}",
         "=" * 66,
         f"  {sc.n_trades} trades   {sc.date_from} -> {sc.date_to}",
         f"  Scoring basis: {basis}",
