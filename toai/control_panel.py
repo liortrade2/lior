@@ -640,6 +640,8 @@ class ControlPanel(tk.Tk):
         self.stop_event = threading.Event()
         self.reload_event = threading.Event()
         self.switch_queue = queue.Queue()
+        self.train_queue = queue.Queue()      # manual "train export now" -> watch
+        self.train_result = queue.Queue()     # watch -> UI: (status, message)
         self.watch_thread = None
         self.badges = {}        # inst -> ttk.Label
         self.radio_vars = {}    # (inst, tf) -> tk.StringVar
@@ -675,6 +677,9 @@ class ControlPanel(tk.Tk):
         self.start_btn.pack(side="left", padx=(8, 0))
         self.end_btn = ttk.Button(top, text="🌙 End day", command=self._end_day)
         self.end_btn.pack(side="left", padx=(4, 0))
+        self.train_btn = ttk.Button(top, text="⚙ Train export",
+                                    command=self._train_export)
+        self.train_btn.pack(side="left", padx=(8, 0))
 
         ttk.Button(top, text="Set", width=4, command=self._set_threshold).pack(side="right")
         self.thr_var = tk.StringVar(value=f"{config.get_threshold():g}")
@@ -797,6 +802,51 @@ class ControlPanel(tk.Tk):
             messagebox.showinfo(
                 "Clear NT cache",
                 msg + "\n\nReconnect / restart NinjaTrader to re-download data.")
+
+    # ---------- manual train ----------
+    def _train_export(self):
+        # Train the newest export in the data root NOW (routed to the watch
+        # thread, which owns the global instrument state — no race).
+        from .build_and_train import find_trades_export
+        p = find_trades_export()
+        if p is None:
+            messagebox.showinfo(
+                "Train export",
+                f"No trades export found in:\n{config.DATA_ROOT}\n\n"
+                "Drop a Strategy Analyzer trades export there first.")
+            return
+        if not messagebox.askyesno(
+                "Train export",
+                f"Train this export now?\n\n  {p.name}\n\n"
+                "The chart must have bar_data covering the backtest dates at the "
+                "right timeframe (set 'Train as' on the instrument card if the "
+                "file name has no '…Xmin…')."):
+            return
+        if not (self.watch_thread and self.watch_thread.is_alive()):
+            messagebox.showwarning("Train export",
+                                   "Start the watch first (it runs the training).")
+            return
+        while not self.train_result.empty():   # drain stale results
+            self.train_result.get()
+        self.train_btn.config(state="disabled", text="Training…")
+        self.train_queue.put("newest")
+        self.after(400, self._train_poll)
+
+    def _train_poll(self):
+        if not self.winfo_exists():
+            return
+        try:
+            status, msg = self.train_result.get_nowait()
+        except queue.Empty:
+            self.after(400, self._train_poll)
+            return
+        self.train_btn.config(state="normal", text="⚙ Train export")
+        if status == "ok":
+            messagebox.showinfo("Train export", msg + "\n\nReload the chart to "
+                                "see historical scores.")
+            self._rebuild()
+        else:
+            messagebox.showwarning("Train export", msg)
 
     # ---------- start / end of day routines ----------
     def _start_day(self):
@@ -1129,7 +1179,9 @@ class ControlPanel(tk.Tk):
         self.watch_thread = threading.Thread(
             target=lambda: watch(stop_event=self.stop_event,
                                   reload_event=self.reload_event,
-                                  switch_queue=self.switch_queue),
+                                  switch_queue=self.switch_queue,
+                                  train_queue=self.train_queue,
+                                  train_result=self.train_result),
             daemon=True)
         self.watch_thread.start()
         self.watch_btn.config(text="Stop watch")

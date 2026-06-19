@@ -79,7 +79,7 @@ def _watch_targets():
 
 
 def watch(interval_seconds: float = 2.0, stop_event=None, reload_event=None,
-          switch_queue=None):
+          switch_queue=None, train_queue=None, train_result=None):
     """Poll every instrument's current_features.csv and refresh its
     score.txt whenever it changes — one watch window serves all charts
     (C:\\LIOR_ML\\ES, C:\\LIOR_ML\\NQ, ...).
@@ -141,6 +141,41 @@ def watch(interval_seconds: float = 2.0, stop_event=None, reload_event=None,
             missing_model.clear()
             portfolio_bundles.clear()
             reload_event.clear()
+        # Manual "Train export now" from the panel — run in THIS thread (it owns
+        # the global instrument state, so no race with scoring/auto-train).
+        if train_queue is not None:
+            while not train_queue.empty():
+                train_queue.get()
+                from .build_and_train import find_trades_export
+                p = find_trades_export()
+                if p is None:
+                    if train_result is not None:
+                        train_result.put(("err", f"No trades export found in {config.DATA_ROOT}"))
+                    continue
+                print(f"\nManual train requested: {p.name}\n" + "-" * 46)
+                try:
+                    ok = build_and_train(trades_file=p)
+                    if ok:
+                        trained[str(p)] = p.stat().st_mtime
+                        bundles.clear()
+                        missing_model.clear()
+                        portfolio_bundles.clear()
+                        try:
+                            dest = config.DATA_ROOT / "_trained"
+                            dest.mkdir(exist_ok=True)
+                            shutil.move(str(p), str(dest / p.name))
+                        except OSError:
+                            pass
+                        if train_result is not None:
+                            train_result.put(("ok", f"Trained {p.name} — variant saved."))
+                    else:
+                        if train_result is not None:
+                            train_result.put(("err",
+                                f"{p.name}: no trades matched bar_data. Load chart "
+                                "history covering the backtest dates (right TF), then retry."))
+                except Exception as e:
+                    if train_result is not None:
+                        train_result.put(("err", f"{p.name}: {e}"))
         # Any new / re-saved export? Train each (after a short grace period so
         # we never read a file NinjaTrader is still writing). Routed to the
         # right instrument by its Instrument column inside build_and_train.
