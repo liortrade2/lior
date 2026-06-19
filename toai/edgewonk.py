@@ -158,19 +158,20 @@ EDGEWONK_NATIVE_COLUMNS = [
     "Breakeven?",
 ] + [f"Custom Stat {i}" for i in range(1, 21)]
 
-# Edgewonk's generic importer rejects the file unless the date format matches
-# the format in the template you downloaded (it is locale-specific). It also
-# wants lowercase buy/sell and no blank mandatory cells. Override the format
-# with TOAI_EDGEWONK_DATE_FMT if your template uses a different one, e.g.
-#   "%m/%d/%Y %H:%M:%S"  (US)   "%d.%m.%Y %H:%M:%S"  (EU)   "%Y-%m-%d %H:%M:%S"
+# Edgewonk's generic importer reads the Opening/Closing Time as a REAL Excel
+# date serial, not text. If we write the timestamp as a string the importer
+# reads numeric 0 and stores 1899-12-31 (the Excel epoch) -> the insert fails on
+# ENTRY_DATE. So the cells must be genuine datetimes (written via the writer's
+# datetime_format below). It also wants lowercase buy/sell and no blank
+# mandatory cells. The display format can be overridden for a non-US template.
 import os as _os
-EDGEWONK_DATE_FMT = _os.environ.get("TOAI_EDGEWONK_DATE_FMT", "%m/%d/%Y %H:%M:%S")
+EDGEWONK_XLSX_DATE_FMT = _os.environ.get(
+    "TOAI_EDGEWONK_DATE_FMT", "mm/dd/yyyy hh:mm:ss")  # Excel number-format code
 
 
-def _fmt_dt(x):
-    """Format a timestamp for Edgewonk; blank stays blank."""
-    ts = pd.to_datetime(x, errors="coerce")
-    return ts.strftime(EDGEWONK_DATE_FMT) if pd.notna(ts) else ""
+def _to_dt(x):
+    """A real Timestamp for Edgewonk (NaT -> written as blank by Excel)."""
+    return pd.to_datetime(x, errors="coerce")
 
 
 def _journal_lookup(inst_dir) -> dict:
@@ -204,8 +205,9 @@ def _native_rows(grp, jlook) -> pd.DataFrame:
 
     out = {c: [""] * n for c in EDGEWONK_NATIVE_COLUMNS}
     pos = col("Market pos.", "")
-    out["Opening Time"] = [_fmt_dt(x) for x in col("Entry time")]
-    out["Closing Time"] = [_fmt_dt(x) for x in col("Exit time")]
+    # Real datetimes (not strings) so Edgewonk reads a proper date serial.
+    out["Opening Time"] = [_to_dt(x) for x in col("Entry time")]
+    out["Closing Time"] = [_to_dt(x) for x in col("Exit time")]
     # Lowercase to match the "Type [buy/sell]" column contract.
     out["Type [buy/sell]"] = ["buy" if str(p).lower().startswith("long")
                               else "sell" for p in pos]
@@ -258,7 +260,11 @@ def _native_rows(grp, jlook) -> pd.DataFrame:
     out["Custom Stat 2"] = st2   # Verdict (ALLOW/SKIP)
     out["Custom Stat 3"] = st3   # Variant (strategy)
     out["Custom Stat 4"] = st4   # Threshold used
-    return pd.DataFrame(out, columns=EDGEWONK_NATIVE_COLUMNS)
+    df = pd.DataFrame(out, columns=EDGEWONK_NATIVE_COLUMNS)
+    # Force real datetime dtype so the writer emits date cells, not text.
+    for c in ("Opening Time", "Closing Time"):
+        df[c] = pd.to_datetime(df[c], errors="coerce")
+    return df
 
 
 def export_live_by_day(instrument, tag_score=True, force=False):
@@ -301,7 +307,18 @@ def export_live_by_day(instrument, tag_score=True, force=False):
             except Exception:
                 pass   # unreadable -> rewrite it
         out = _native_rows(grp, jlook)
-        out.to_excel(out_path, index=False, engine="openpyxl")
+        with pd.ExcelWriter(out_path, engine="openpyxl",
+                            datetime_format=EDGEWONK_XLSX_DATE_FMT) as xl:
+            out.to_excel(xl, index=False)
+            # Pin the date-cell number format explicitly (pandas' datetime_format
+            # doesn't always win over openpyxl's default) so the displayed date
+            # matches the template's expected format.
+            ws = xl.sheets[list(xl.sheets)[0]]
+            hdr = [c.value for c in ws[1]]
+            for name in ("Opening Time", "Closing Time"):
+                ci = hdr.index(name) + 1
+                for r in range(2, ws.max_row + 1):
+                    ws.cell(row=r, column=ci).number_format = EDGEWONK_XLSX_DATE_FMT
         written.append((str(day), out_path))
     return written
 
