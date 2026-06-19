@@ -154,7 +154,25 @@ bar_scores כולם נמחקו. ה-`MES` עכשיו **לוח נקי** (variants.
 - **features יחסיים בלבד** (toai/features.py) — לעולם לא רמות מחיר אבסולוטיות.
 
 ## 8. נקודות שחזור
-- ‏git: ענף `claude/magical-dirac-1yd0d4`. ‏HEAD נוכחי ≈ `779e2b2` (נדחף).
+- ‏git: ענף `claude/magical-dirac-1yd0d4`. ‏HEAD נוכחי ≈ `de916ff` (נדחף).
+- **נבנה 2026-06-19 (הכול נדחף):**
+  - **ייצוא Edgewonk חי** — לא הבקטסט אלא ה-fills האמיתיים (`executions.csv`), קובץ-יום
+    מתוארך (`<inst>_live_<תאריך>.xlsx`), אוטומטי דרך ה-watch + כפתור force, פורמט ילידי
+    עם **Custom Stats** (ML score/Verdict/Variant/Threshold) + Setup. SL/TP/MAE/MFE/Commission
+    מ-executions.csv (דורש קימפול AddOn).
+  - **מצב PLAYBACK מבודד** — שורש `C:\LIOR_ML_PLAYBACK`, מתג `PlaybackMode` ב-3 האינדיקטורים,
+    ניתוב חשבון Playback101 ב-AddOn, `TOAI_Playback.bat` + `toai/playback.py` (סנכרון מודלים, ממזג).
+  - **בורר TF לאימון פר-מכשיר** (כרטיס: Auto/1/2/3/5/15) → `<inst>/train_tf.txt`.
+  - **התקשחות (7 תיקונים, `d5ad63f`):** סף פר-מכשיר (`<inst>/threshold.txt`+fallback), גיבוי
+    אוטומטי אחרי אימון (`toai/backup.py` → D:\TOAI_Backups), executions עמידות
+    (`executions_<date>.csv`+catch-up), חלון-פאנל לפי זמן-בר ET, playback-sync ממזג, dedup
+    עם ExitTime (scalping), בדיקת-שפיות SL/TP. **`TOAIExporterGaugeTick`+`TOAIExecutionLogger`
+    שונו — לקמפל.**
+  - **בריאות מודל (`de916ff`)** — `toai/health.py`: התראת מודל מתיישן (>30 ימים) + drift
+    (edge חי מול בקטסט) בכרטיס הפאנל + main.py אופ' 14.
+  - **#9 (אותו מכשיר רב-TF חי במקביל) — נדחה** ביוזמת ליאור. כשיידרש: גישה A (קבצי
+    `bar_data_<tf>min.csv`/`score_<tf>min.txt` באותה תיקייה, מנצל וריאנטים מתויגי-TF).
+- **תיקוני 2026-06-18 (נדחפו):** (א) וריאנט expectancy יורש את ה-TF של הבסיס —
 - **תיקוני 2026-06-18 (נדחפו):** (א) וריאנט expectancy יורש את ה-TF של הבסיס —
   אחרת לא יכל לעלות לאוויר אחרי Activate (`66eb713`). (ב) `TOAI_Panel.bat` מפעיל
   עכשיו את ה-Control Panel החדש, לא את gui.py הישן (`28e1517`). (ג) **ה-Scorecard
