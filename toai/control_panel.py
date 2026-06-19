@@ -667,6 +667,9 @@ class ControlPanel(tk.Tk):
         self.ew_btn = ttk.Button(top, text="Export → Edgewonk",
                                  command=self._export_edgewonk)
         self.ew_btn.pack(side="left", padx=(12, 0))
+        self.cache_btn = ttk.Button(top, text="🧹 Clear NT cache",
+                                    command=self._clear_nt_cache)
+        self.cache_btn.pack(side="left", padx=(8, 0))
 
         ttk.Button(top, text="Set", width=4, command=self._set_threshold).pack(side="right")
         self.thr_var = tk.StringVar(value=f"{config.get_threshold():g}")
@@ -742,6 +745,53 @@ class ControlPanel(tk.Tk):
                 os.startfile(str(dest))
             except Exception:
                 pass
+
+    # ---------- NinjaTrader cache maintenance ----------
+    def _clear_nt_cache(self):
+        from . import ninja_cache
+        db = ninja_cache.nt_db_dir()
+        if not messagebox.askyesno(
+                "Clear NinjaTrader cache",
+                f"Delete the CONTENTS of:\n  {db}\\(cache, day, minute, tick)\n\n"
+                "NinjaTrader re-downloads this data, but it must be CLOSED first "
+                "or the files are locked.\n\nIs NinjaTrader closed — clear now?",
+                icon="warning", default="no"):
+            return
+        self.cache_btn.config(state="disabled", text="Clearing…")
+        self._cache_result = None
+        threading.Thread(target=self._cache_worker, daemon=True).start()
+        self.after(200, self._cache_poll)
+
+    def _cache_worker(self):
+        try:
+            from . import ninja_cache
+            self._cache_result = (ninja_cache.clear_cache(), None)
+        except Exception as e:
+            self._cache_result = (None, str(e))
+
+    def _cache_poll(self):
+        if not self.winfo_exists():
+            return
+        if self._cache_result is None:
+            self.after(200, self._cache_poll)
+            return
+        r, err = self._cache_result
+        self.cache_btn.config(state="normal", text="🧹 Clear NT cache")
+        if err:
+            messagebox.showerror("Clear NT cache", f"Failed:\n{err}")
+            return
+        msg = f"Cleared {r['removed']} items · freed {r['freed_mb']:.1f} MB"
+        if r["errors"]:
+            n = len(r["errors"])
+            msg += (f"\n\n⚠ {n} item(s) could NOT be deleted (NinjaTrader open / "
+                    "files locked):\n  " + "\n  ".join(r["errors"][:5]))
+            if n > 5:
+                msg += f"\n  …+{n - 5} more"
+            messagebox.showwarning("Clear NT cache", msg)
+        else:
+            messagebox.showinfo(
+                "Clear NT cache",
+                msg + "\n\nReconnect / restart NinjaTrader to re-download data.")
 
     def _signature(self):
         from .merge import live_timeframe
