@@ -158,6 +158,20 @@ EDGEWONK_NATIVE_COLUMNS = [
     "Breakeven?",
 ] + [f"Custom Stat {i}" for i in range(1, 21)]
 
+# Edgewonk's generic importer rejects the file unless the date format matches
+# the format in the template you downloaded (it is locale-specific). It also
+# wants lowercase buy/sell and no blank mandatory cells. Override the format
+# with TOAI_EDGEWONK_DATE_FMT if your template uses a different one, e.g.
+#   "%m/%d/%Y %H:%M:%S"  (US)   "%d.%m.%Y %H:%M:%S"  (EU)   "%Y-%m-%d %H:%M:%S"
+import os as _os
+EDGEWONK_DATE_FMT = _os.environ.get("TOAI_EDGEWONK_DATE_FMT", "%m/%d/%Y %H:%M:%S")
+
+
+def _fmt_dt(x):
+    """Format a timestamp for Edgewonk; blank stays blank."""
+    ts = pd.to_datetime(x, errors="coerce")
+    return ts.strftime(EDGEWONK_DATE_FMT) if pd.notna(ts) else ""
+
 
 def _journal_lookup(inst_dir) -> dict:
     """{entry-timestamp -> {Score, Verdict, Variant, Threshold}} from the
@@ -190,15 +204,18 @@ def _native_rows(grp, jlook) -> pd.DataFrame:
 
     out = {c: [""] * n for c in EDGEWONK_NATIVE_COLUMNS}
     pos = col("Market pos.", "")
-    out["Opening Time"] = [str(x) for x in col("Entry time")]
-    out["Closing Time"] = [str(x) for x in col("Exit time")]
-    out["Type [buy/sell]"] = ["BUY" if str(p).lower().startswith("long")
-                              else "SELL" for p in pos]
+    out["Opening Time"] = [_fmt_dt(x) for x in col("Entry time")]
+    out["Closing Time"] = [_fmt_dt(x) for x in col("Exit time")]
+    # Lowercase to match the "Type [buy/sell]" column contract.
+    out["Type [buy/sell]"] = ["buy" if str(p).lower().startswith("long")
+                              else "sell" for p in pos]
     out["Symbol"] = col("Instrument")
     out["Size / Quantity"] = col("Qty", 1)
     out["Entry Price"] = col("Entry price")
     out["Closing Price"] = col("Exit price")
     out["Net Profit"] = col("Profit")
+    # Futures have no swap; Edgewonk wants the mandatory cell filled, not blank.
+    out["Swap"] = [0] * n
     out["Commission"] = [num(x) for x in col("Commission", "")]
     out["Highest price (optional)"] = [num(x) for x in col("Highest price", "")]
     out["Lowest price (optional)"] = [num(x) for x in col("Lowest price", "")]
@@ -215,7 +232,7 @@ def _native_rows(grp, jlook) -> pd.DataFrame:
             entry = float(out["Entry Price"][i])
         except (TypeError, ValueError):
             continue
-        is_buy = out["Type [buy/sell]"][i] == "BUY"
+        is_buy = out["Type [buy/sell]"][i] == "buy"
         for fld, want_below in (("Stop Loss (optional)", is_buy),
                                 ("Take Profit(optional)", not is_buy)):
             v = out[fld][i]
