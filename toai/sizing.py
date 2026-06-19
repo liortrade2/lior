@@ -65,7 +65,8 @@ def _active_training_file(instrument):
 def simulate(instrument, edges=(80, 90), threshold=None, training_file=None):
     """Compare uniform vs score-tiered sizing on an instrument's active model,
     out-of-fold, at equal exposure. Returns a dict or None."""
-    threshold = config.get_threshold() if threshold is None else threshold
+    inst_dir = config.DATA_ROOT / instrument if instrument else config.DATA_ROOT
+    threshold = config.get_threshold(inst_dir) if threshold is None else threshold
     tf = training_file or _active_training_file(instrument)
     st = scorecard.score_trades(tf)            # out-of-fold (Score, PnL[, DateTime])
     if st is None:

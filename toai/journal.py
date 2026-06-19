@@ -31,7 +31,7 @@ from .features import derive_features
 from .merge import match_trades
 
 JOURNAL_NAME = "journal.csv"
-_LEDGER_COLS = (["DateTime", "Direction"] + config.FEATURES +
+_LEDGER_COLS = (["DateTime", "ExitTime", "Direction"] + config.FEATURES +
                 ["PnL", "Score", "Verdict", "Variant", "Threshold",
                  "Source", "RecordedAt"])
 
@@ -44,12 +44,14 @@ def _journal_path(inst_dir):
     return inst_dir / JOURNAL_NAME
 
 
-def _key(dt, direction, pnl) -> str:
+def _key(dt, direction, pnl, exit_t="") -> str:
     try:
         p = round(float(pnl), 2)
     except (TypeError, ValueError):
         p = pnl
-    return f"{dt}|{direction}|{p}"
+    # ExitTime distinguishes two same-bar same-PnL scalping trades that would
+    # otherwise collapse into one (entry bar + direction + PnL alone collide).
+    return f"{dt}|{exit_t}|{direction}|{p}"
 
 
 def _append(out_df: pd.DataFrame, inst_dir, source: str) -> int:
@@ -67,7 +69,7 @@ def _append(out_df: pd.DataFrame, inst_dir, source: str) -> int:
     X = bundle["scaler"].transform(d[bundle["features"]])
     d = d.copy()
     d["Score"] = (bundle["model"].predict_proba(X)[:, 1] * 100).round(1)
-    threshold = config.get_threshold()
+    threshold = config.get_threshold(inst_dir)
     d["Verdict"] = ["ALLOW" if s >= threshold else "SKIP" for s in d["Score"]]
     _, vinfo = variants.active_variant(inst_dir)
     d["Variant"] = (vinfo or {}).get("name", "")
@@ -75,19 +77,27 @@ def _append(out_df: pd.DataFrame, inst_dir, source: str) -> int:
     d["Source"] = source
     d["RecordedAt"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     d["DateTime"] = d["DateTime"].astype(str)
+    # ExitTime may be absent on a legacy training_data.csv — default to blank.
+    d["ExitTime"] = d["ExitTime"].astype(str) if "ExitTime" in d.columns else ""
 
     new = d[_LEDGER_COLS].copy()
     jp = _journal_path(inst_dir)
+
+    def _ex(df):
+        return (df["ExitTime"].astype(str) if "ExitTime" in df.columns
+                else [""] * len(df))
+
     if jp.exists():
         try:
             existing = pd.read_csv(jp)
         except (OSError, pd.errors.EmptyDataError):
             existing = None
         if existing is not None and len(existing):
-            seen = {_key(r.DateTime, r.Direction, r.PnL)
-                    for r in existing[["DateTime", "Direction", "PnL"]].itertuples()}
-            mask = [_key(r.DateTime, r.Direction, r.PnL) not in seen
-                    for r in new[["DateTime", "Direction", "PnL"]].itertuples()]
+            seen = {_key(dt, dr, p, xt) for dt, xt, dr, p in zip(
+                existing["DateTime"], _ex(existing),
+                existing["Direction"], existing["PnL"])}
+            mask = [_key(dt, dr, p, xt) not in seen for dt, xt, dr, p in zip(
+                new["DateTime"], _ex(new), new["Direction"], new["PnL"])]
             new = new[mask]
             if new.empty:
                 return 0
@@ -170,8 +180,8 @@ def live_scorecard(inst_dir=None, source: str | None = None):
         dt = pd.to_datetime(scored["DateTime"], errors="coerce").dropna()
         if len(dt):
             date_from, date_to = str(dt.min().date()), str(dt.max().date())
-    return scorecard_from_scored(scored, config.get_threshold(), inst_dir.name,
-                                 out_of_sample=False, realized=True,
+    return scorecard_from_scored(scored, config.get_threshold(inst_dir),
+                                 inst_dir.name, out_of_sample=False, realized=True,
                                  date_from=date_from, date_to=date_to)
 
 

@@ -55,7 +55,10 @@ def match_trades(trades_path, bar_data_path=None, tolerance_minutes: int = 30):
             f"Could not find entry-time/profit columns in {trades_path}. "
             f"Columns found: {list(trades.columns)}")
 
+    exit_time_col = _find_col(trades.columns, "exit", "time")
     trades["EntryTime"] = pd.to_datetime(trades[entry_time_col])
+    trades["ExitTime"] = (pd.to_datetime(trades[exit_time_col], errors="coerce")
+                          if exit_time_col else pd.NaT)
     trades["PnL"] = trades[profit_col].map(_money)
     trades["Direction"] = trades[direction_col] if direction_col else ""
     trades = trades.dropna(subset=["EntryTime", "PnL"])
@@ -81,7 +84,8 @@ def match_trades(trades_path, bar_data_path=None, tolerance_minutes: int = 30):
     matched = merged.dropna(subset=config.FEATURES)
     unmatched = len(merged) - len(matched)
 
-    out = matched[["EntryTime", "Direction"] + config.FEATURES + ["PnL"]].copy()
+    out = matched[["EntryTime", "ExitTime", "Direction"]
+                  + config.FEATURES + ["PnL"]].copy()
     out = out.rename(columns={"EntryTime": "DateTime"})
     return out, len(trades), unmatched
 

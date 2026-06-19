@@ -29,6 +29,38 @@ def _inst_dir(inst):
     return config.DATA_ROOT / inst
 
 
+_lastbar_cache = {}   # str(inst_dir) -> (bar_data mtime, minute-of-day)
+
+
+def _last_bar_minute(d):
+    """Minute-of-day of the LATEST bar (its ET stamp), cached by bar_data.csv
+    mtime. Lets the window check use the data clock, not the machine clock
+    (which may differ on a non-ET box or in Playback). None -> caller falls
+    back to the machine clock. Tail-reads only the last few KB, so it's cheap
+    even on a 38k-row file."""
+    p = d / "bar_data.csv"
+    try:
+        mt = p.stat().st_mtime
+        size = p.stat().st_size
+    except OSError:
+        return None
+    hit = _lastbar_cache.get(str(d))
+    if hit and hit[0] == mt:
+        return hit[1]
+    minute = None
+    try:
+        with open(p, "rb") as f:
+            f.seek(max(0, size - 4096))
+            tail = f.read().decode("utf-8", "ignore")
+        last = [ln for ln in tail.splitlines() if ln.strip()][-1]
+        hhmm = last.split(",")[0].strip().split(" ")[-1].split(":")
+        minute = int(hhmm[0]) * 60 + int(hhmm[1])
+    except Exception:
+        minute = None
+    _lastbar_cache[str(d)] = (mt, minute)
+    return minute
+
+
 def _status(inst):
     """(score|None, verdict, color) for an instrument, read straight from its
     files — no global-config mutation."""
@@ -38,11 +70,14 @@ def _status(inst):
         score = float((d / "score.txt").read_text().strip())
     except (OSError, ValueError):
         pass
-    threshold = config.get_threshold()
+    threshold = config.get_threshold(d)
     in_window = True
     try:
         lo, hi = (float(x) for x in (d / "entry_window.txt").read_text().strip().split("-"))
-        now_min = datetime.now().hour * 60 + datetime.now().minute
+        now_min = _last_bar_minute(d)
+        if now_min is None:
+            now = datetime.now()
+            now_min = now.hour * 60 + now.minute
         in_window = lo <= now_min <= hi
     except (OSError, ValueError):
         pass
@@ -72,7 +107,7 @@ class ScorecardWindow(tk.Toplevel):
         self._scored = None        # cached out-of-fold scores (for slider/equity)
         self._rec = None           # threshold recommendation
         self._path = scorecard.active_training_file(inst)
-        self._preview = tk.IntVar(value=int(round(config.get_threshold())))
+        self._preview = tk.IntVar(value=int(round(config.get_threshold(_inst_dir(inst)))))
         self._slider_job = None
         self._realized = False     # False = predicted (walk-forward); True = journal
         self.title(f"Live Scorecard — {inst}")
@@ -260,7 +295,8 @@ class ScorecardWindow(tk.Toplevel):
     def _apply_live(self):
         t = self._preview.get()
         if hasattr(self.master, "apply_threshold"):
-            self.master.apply_threshold(t)
+            # This scorecard is for one instrument -> set ITS threshold.
+            self.master.apply_threshold(t, inst=self.inst)
 
     def _render_content(self, t):
         if not self.winfo_exists() or self._scored is None:
@@ -448,7 +484,7 @@ class VariantCompareWindow(tk.Toplevel):
     def _compute(self):
         try:
             inst_dir = config.DATA_ROOT / self.inst
-            threshold = config.get_threshold()
+            threshold = config.get_threshold(inst_dir)
             rows = variants.comparison_data(inst_dir)
             for r in rows:
                 tf = variants.variant_training_file(r["slug"], inst_dir)
@@ -851,7 +887,7 @@ class ControlPanel(tk.Tk):
             return
         # Keyed on (data mtime, live threshold): the edge line depends on both,
         # so changing the threshold refreshes it without rescoring.
-        key = (self._training_mtime(inst), config.get_threshold())
+        key = (self._training_mtime(inst), config.get_threshold(_inst_dir(inst)))
         cached = self._edge_text.get(inst)
         if cached and cached[0] == key:
             lbl.config(text=cached[1], foreground=cached[2])
@@ -911,14 +947,17 @@ class ControlPanel(tk.Tk):
         v = var.get()
         config.set_train_tf(None if v == "auto" else int(v), _inst_dir(inst))
 
-    def apply_threshold(self, value):
-        """Write the live (global) threshold and refresh anything that depends
-        on it — the entry box and the per-card edge footers. Used by the Set
-        button and by a scorecard window's 'Apply to live'."""
+    def apply_threshold(self, value, inst=None):
+        """Write the threshold and refresh the edge footers. inst=None -> the
+        GLOBAL default (header 'Set' button); inst -> that instrument's own
+        threshold (a scorecard's 'Apply to live')."""
         value = float(value)
-        config.set_threshold(value)
-        self.thr_var.set(f"{value:g}")
-        for inst in list(self._edge_labels):
+        config.set_threshold(value, _inst_dir(inst) if inst else None)
+        if inst is None:
+            self.thr_var.set(f"{value:g}")
+            for i in list(self._edge_labels):
+                self._refresh_edge_label(i)
+        else:
             self._refresh_edge_label(inst)
         return True
 

@@ -206,6 +206,26 @@ def _native_rows(grp, jlook) -> pd.DataFrame:
     out["Take Profit(optional)"] = [num(x) for x in col("Take Profit", "")]
     out["Breakeven?"] = ["No"] * n
 
+    # Sanity-check the captured SL/TP (the OrderUpdate capture can mis-fire).
+    # A valid stop sits on the losing side of entry, a target on the winning
+    # side. Anything on the wrong side is dropped so Edgewonk's R-Multiple
+    # isn't computed from garbage.
+    for i in range(n):
+        try:
+            entry = float(out["Entry Price"][i])
+        except (TypeError, ValueError):
+            continue
+        is_buy = out["Type [buy/sell]"][i] == "BUY"
+        for fld, want_below in (("Stop Loss (optional)", is_buy),
+                                ("Take Profit(optional)", not is_buy)):
+            v = out[fld][i]
+            try:
+                fv = float(v)
+            except (TypeError, ValueError):
+                continue
+            if fv <= 0 or (fv < entry) != want_below:
+                out[fld][i] = ""   # wrong side / nonsensical -> blank
+
     setups, st1, st2, st3, st4 = [], [], [], [], []
     for t in grp["_et"]:
         info = jlook.get(t, {})

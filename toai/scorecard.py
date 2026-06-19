@@ -354,8 +354,9 @@ def scorecard_for_instrument(instrument: str | None,
     threshold, without mutating global config. Uses the active variant's snapshot
     (the model that's actually live), not the live training_data.csv — which holds
     whatever export was trained LAST and may be a different, inactive strategy."""
+    inst_dir = config.DATA_ROOT / instrument if instrument else config.DATA_ROOT
     return compute_scorecard(active_training_file(instrument),
-                             config.get_threshold(), instrument,
+                             config.get_threshold(inst_dir), instrument,
                              use_cache=use_cache)
 
 

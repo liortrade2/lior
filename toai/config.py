@@ -145,23 +145,35 @@ TARGET_COLUMN = "PnL"       # target = PnL > 0
 DEFAULT_THRESHOLD = 55.0
 
 
-def get_threshold() -> float:
-    """Current threshold from threshold.txt (DEFAULT_THRESHOLD if missing)."""
-    try:
-        return float(THRESHOLD_FILE.read_text().strip())
-    except (FileNotFoundError, ValueError, OSError):
-        return DEFAULT_THRESHOLD
+def get_threshold(inst_dir=None) -> float:
+    """Passing score. PER-INSTRUMENT: <inst_dir>/threshold.txt first, then the
+    root threshold.txt as the global default (DEFAULT_THRESHOLD if neither).
+    inst_dir=None reads the global. So MES and MNQ can run different gates while
+    instruments without their own file follow the global one."""
+    paths = []
+    if inst_dir is not None:
+        paths.append(Path(inst_dir) / "threshold.txt")
+    paths.append(THRESHOLD_FILE)
+    for p in paths:
+        try:
+            return float(p.read_text().strip())
+        except (FileNotFoundError, ValueError, OSError):
+            continue
+    return DEFAULT_THRESHOLD
 
 
-def set_threshold(value: float) -> float:
-    """Write the threshold everyone reads. Returns the stored value."""
+def set_threshold(value: float, inst_dir=None) -> float:
+    """Write the threshold. inst_dir=None -> global root threshold (the default
+    for all instruments); inst_dir -> that instrument's own threshold."""
     value = float(value)
     if not 0 <= value <= 100:
         raise ValueError("Threshold must be between 0 and 100.")
-    DATA_ROOT.mkdir(parents=True, exist_ok=True)
-    THRESHOLD_FILE.write_text(f"{value:g}")
-    global MIN_PROBABILITY_THRESHOLD
-    MIN_PROBABILITY_THRESHOLD = value
+    base = Path(inst_dir) if inst_dir is not None else DATA_ROOT
+    base.mkdir(parents=True, exist_ok=True)
+    (base / "threshold.txt").write_text(f"{value:g}")
+    if inst_dir is None:
+        global MIN_PROBABILITY_THRESHOLD
+        MIN_PROBABILITY_THRESHOLD = value
     return value
 
 

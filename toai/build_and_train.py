@@ -142,6 +142,14 @@ def build_and_train(strategy_name: str | None = None, trades_file=None):
     if vslug:
         print(f"\nSaved strategy variant ({exp_tf}min): {trades_file.stem}")
 
+    # Auto-backup the models/variants so a disk failure never loses them
+    # (they live only in the data root, not git).
+    try:
+        from . import backup
+        backup.backup_instrument(config.MODEL_FILE.parent)
+    except Exception as e:
+        print(f"(backup skipped: {e})")
+
     # Retroactive display: score every bar in bar_data.csv so the chart
     # shows labels on historical bars and in Playback.
     from .score_history import score_history

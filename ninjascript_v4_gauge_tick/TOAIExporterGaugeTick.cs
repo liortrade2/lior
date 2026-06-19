@@ -41,6 +41,7 @@ namespace NinjaTrader.NinjaScript.Indicators
         // live data root. ThresholdFile follows the same root.
         private string RootDir = LiveRoot;
         private string ThresholdFile = LiveRoot + @"\threshold.txt";
+        private string instThresholdFile;   // <instrument>\threshold.txt (overrides root)
         private string dataDir, featuresFile, barDataFile, scoreFile, barScoresFile,
             entryWindowFile;
         private const string Header =
@@ -167,6 +168,8 @@ namespace NinjaTrader.NinjaScript.Indicators
                     (string.IsNullOrWhiteSpace(ScoreFileName) ? "score.txt" : ScoreFileName.Trim());
                 barScoresFile = dataDir + @"\bar_scores.csv";
                 entryWindowFile = dataDir + @"\entry_window.txt";
+                // Per-instrument threshold; the root file is the global default.
+                instThresholdFile = dataDir + @"\threshold.txt";
                 try
                 {
                     System.IO.Directory.CreateDirectory(dataDir);
@@ -180,7 +183,7 @@ namespace NinjaTrader.NinjaScript.Indicators
                 }
                 catch (Exception ex) { ioError = ex.Message; }
                 scoreMap = LoadScoreMap(barScoresFile, ref ioError);
-                MinProbabilityThreshold = ReadThreshold(ThresholdFile, MinProbabilityThreshold);
+                MinProbabilityThreshold = ReadThreshold(instThresholdFile, ReadThreshold(ThresholdFile, MinProbabilityThreshold));
                 Lines[0].Value = MinProbabilityThreshold;
                 hudHasWindow = TryReadWindow(entryWindowFile, out hudWinLo, out hudWinHi);
             }
@@ -424,7 +427,7 @@ namespace NinjaTrader.NinjaScript.Indicators
             // Once per bar: re-read threshold + window, export the just-closed bar.
             if (IsFirstTickOfBar)
             {
-                MinProbabilityThreshold = ReadThreshold(ThresholdFile, MinProbabilityThreshold);
+                MinProbabilityThreshold = ReadThreshold(instThresholdFile, ReadThreshold(ThresholdFile, MinProbabilityThreshold));
                 Lines[0].Value = MinProbabilityThreshold;
                 hudHasWindow = TryReadWindow(entryWindowFile, out hudWinLo, out hudWinHi);
 

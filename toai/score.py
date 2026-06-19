@@ -223,8 +223,8 @@ def watch(interval_seconds: float = 2.0, stop_event=None, reload_event=None,
                 continue
             feat_mtimes[name] = mtime   # mark done only AFTER a successful score
             # Re-read each time so a threshold change in the panel applies
-            # immediately, without restarting the watch.
-            threshold = config.get_threshold()
+            # immediately, without restarting the watch. Per-instrument.
+            threshold = config.get_threshold(config.DATA_DIR)
             verdict = "ALLOW" if score >= threshold else "SKIP"
             label = f"[{name}] " if name else ""
             print(f"{label}ProbOfTrue: {score:5.1f}  ->  {verdict}  (min {threshold:g})")
@@ -267,21 +267,32 @@ def watch(interval_seconds: float = 2.0, stop_event=None, reload_event=None,
                     consolidate_training_bars(config.DATA_DIR, include_archives=False)
             except OSError:
                 pass
-            ep = config.DATA_DIR / "executions.csv"
-            try:
-                emt = ep.stat().st_mtime
-            except OSError:
+            # executions.csv = current session; executions_<date>.csv = durable
+            # per-day files the AddOn keeps even if the panel was off — ingest
+            # all of them (journal dedups), so a missed session is caught up.
+            exec_files = ([config.DATA_DIR / "executions.csv"]
+                          + sorted(config.DATA_DIR.glob("executions_*.csv")))
+            newest = 0.0
+            for ep in exec_files:
+                try:
+                    newest = max(newest, ep.stat().st_mtime)
+                except OSError:
+                    pass
+            if not newest or newest == exec_mtimes.get(name) or time.time() - newest <= 5:
                 continue
-            if emt == exec_mtimes.get(name) or time.time() - emt <= 5:
-                continue
-            exec_mtimes[name] = emt
-            try:
-                added = journal.record_export(ep, source="live",
-                                              inst_dir=config.MODEL_FILE.parent)
-                if added:
-                    print(f"[{name or 'root'}] journal: +{added} live fills logged")
-            except Exception as e:
-                print(f"[{name or 'root'}] journal (live) skipped: {e}")
+            exec_mtimes[name] = newest
+            total_added = 0
+            for ep in exec_files:
+                if not ep.exists():
+                    continue
+                try:
+                    total_added += journal.record_export(
+                        ep, source="live", inst_dir=config.MODEL_FILE.parent,
+                        verbose=False)
+                except Exception as e:
+                    print(f"[{name or 'root'}] journal (live) skipped {ep.name}: {e}")
+            if total_added:
+                print(f"[{name or 'root'}] journal: +{total_added} live fills logged")
             # Auto-save the Edgewonk per-day file from the realized fills, so the
             # _edgewonk/<inst>/ folder fills up with one .xlsx per trading day on
             # its own — today's file is refreshed as fills land, complete by EOD.

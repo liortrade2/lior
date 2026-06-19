@@ -244,10 +244,15 @@ namespace NinjaTrader.NinjaScript.AddOns
             Directory.CreateDirectory(dir);
             string dest = Path.Combine(dir, "executions.csv");
 
-            StringBuilder sb = new StringBuilder();
             // Commission + MAE/MFE + Highest/Lowest price feed Edgewonk's
             // optional fields (the TOAI Python export maps them straight over).
-            sb.AppendLine("Trade number,Instrument,Account,Market pos.,Qty,Entry price,Exit price,Entry time,Exit time,Profit,Commission,MAE,MFE,Highest price,Lowest price,Stop Loss,Take Profit");
+            string header = "Trade number,Instrument,Account,Market pos.,Qty,Entry price,Exit price,Entry time,Exit time,Profit,Commission,MAE,MFE,Highest price,Lowest price,Stop Loss,Take Profit";
+            StringBuilder sb = new StringBuilder();
+            sb.AppendLine(header);
+            // Per-entry-date rows for the durable executions_<date>.csv files,
+            // so a session that closes while the Control Panel is OFF is still
+            // ingested later (executions.csv is overwritten each session).
+            Dictionary<string, StringBuilder> byDate = new Dictionary<string, StringBuilder>();
             foreach (Trade t in trades)
             {
                 Execution en = t.Entry;
@@ -286,17 +291,37 @@ namespace NinjaTrader.NinjaScript.AddOns
                 double highest = isLong ? entryPrice + mfePts : entryPrice + maePts;
                 double lowest = isLong ? entryPrice - maePts : entryPrice - mfePts;
 
-                sb.AppendLine(string.Format(CultureInfo.InvariantCulture,
+                string line = string.Format(CultureInfo.InvariantCulture,
                     "{0},{1},{2},{3},{4},{5},{6},{7},{8},{9},{10},{11},{12},{13},{14},{15},{16}",
                     t.TradeNumber, inst, account.Name, pos, t.Quantity,
                     entryPrice, exitPrice, entryTime, exitTime, t.ProfitCurrency,
-                    commission, maeCur, mfeCur, highest, lowest, slStr, tpStr));
+                    commission, maeCur, mfeCur, highest, lowest, slStr, tpStr);
+                sb.AppendLine(line);
+
+                string day = entryTime.Length >= 10 ? entryTime.Substring(0, 10) : "unknown";
+                if (!byDate.ContainsKey(day))
+                {
+                    byDate[day] = new StringBuilder();
+                    byDate[day].AppendLine(header);
+                }
+                byDate[day].AppendLine(line);
             }
 
-            // Atomic-ish write (temp + overwrite) so the Python watch never
-            // reads a half-written file.
+            // Current-session snapshot (the live watch reads this).
+            WriteAtomic(dest, sb.ToString());
+            // Durable per-day files — never overwritten across sessions, so the
+            // watch ingests any session it missed on its next pass.
+            foreach (KeyValuePair<string, StringBuilder> kv in byDate)
+                WriteAtomic(Path.Combine(dir, "executions_" + kv.Key + ".csv"),
+                            kv.Value.ToString());
+        }
+
+        // Atomic-ish write (temp + overwrite) so the Python watch never reads a
+        // half-written file.
+        private static void WriteAtomic(string dest, string content)
+        {
             string tmp = dest + ".tmp";
-            File.WriteAllText(tmp, sb.ToString());
+            File.WriteAllText(tmp, content);
             File.Copy(tmp, dest, true);
             File.Delete(tmp);
         }

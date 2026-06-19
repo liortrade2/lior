@@ -18,11 +18,32 @@ from pathlib import Path
 
 from . import config
 
+import json
+
 # Per-instrument model artifacts to mirror live -> playback. Deliberately NOT
 # bar_data.csv / training_data.csv / journal.csv / executions.csv — playback
-# generates and keeps its own.
-_INST_FILES = ("model.pkl", "variants.json", "bar_data_tf.txt",
+# generates and keeps its own. variants.json is MERGED (not copied) so
+# playback-trained variants survive a re-sync.
+_INST_FILES = ("model.pkl", "bar_data_tf.txt",
                "entry_window.txt", "entry_window_manual.txt")
+
+
+def _merge_registry(live_inst, pb_inst):
+    """Merge the live variants.json into playback's, keeping playback-only
+    variants. Live entries win on conflict (same slug)."""
+    def _load(p):
+        try:
+            return json.loads((p / "variants.json").read_text())
+        except (OSError, ValueError):
+            return {}
+    live_reg, pb_reg = _load(live_inst), _load(pb_inst)
+    if not live_reg:
+        return
+    pb_reg.update(live_reg)            # live overrides same-slug, keeps extras
+    try:
+        (pb_inst / "variants.json").write_text(json.dumps(pb_reg, indent=2))
+    except OSError:
+        pass
 
 
 def live_root() -> Path:
@@ -70,6 +91,7 @@ def sync(live=None, pb=None, verbose: bool = True) -> int:
                 shutil.copy2(src / f, dst / f)
         if (src / "models").is_dir():
             shutil.copytree(src / "models", dst / "models", dirs_exist_ok=True)
+        _merge_registry(src, dst)      # keep playback-only variants
         n += 1
         if verbose:
             print(f"  synced {src.name} -> {dst}")

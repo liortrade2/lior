@@ -29,7 +29,8 @@ def objective_scorecards(instrument, threshold=None):
     trades, same folds, only the training objective differs. Either is None if
     there isn't enough data."""
     tf = scorecard.training_file_for(instrument)
-    threshold = config.get_threshold() if threshold is None else threshold
+    inst_dir = config.DATA_ROOT / instrument if instrument else config.DATA_ROOT
+    threshold = config.get_threshold(inst_dir) if threshold is None else threshold
     base = scorecard.compute_scorecard(tf, threshold, instrument, weight_by_pnl=False)
     exp = scorecard.compute_scorecard(tf, threshold, instrument, weight_by_pnl=True)
     return base, exp
