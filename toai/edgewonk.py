@@ -141,51 +141,68 @@ def export_all(tag_score=True):
 
 
 # --------------------------------------------------------------------------- #
-#  Active-only, per-instrument, chronological export (the panel's button)
+#  Live-trades export (the panel's button) — your REAL fills, not the backtest.
+#  Source = <inst>/executions.csv (the AddOn's realized fills, full NinjaTrader
+#  columns incl. prices), tagged with the EXACT gate score from journal.csv.
+#  Per-instrument folder + timestamp, so each click keeps the prior file.
 # --------------------------------------------------------------------------- #
-def _source_export_for(name):
-    """The original NinjaTrader trades export a variant was built from. After
-    training the watch archives it to _trained/<name>.csv, so look there first,
-    then the root, then any trades-export whose stem matches the name."""
-    fname = f"{name}.csv"
-    for base in (config.DATA_ROOT / "_trained", config.DATA_ROOT):
-        p = base / fname
-        if p.is_file():
-            return p
-    for base in (config.DATA_ROOT / "_trained", config.DATA_ROOT):
-        if not base.is_dir():
-            continue
-        for p in base.glob("*.csv"):
-            if p.stem == name:
-                return p
-    return None
+def _journal_scores(inst_dir) -> dict:
+    """{entry-timestamp -> Score} from the realized journal, so each live fill
+    carries the exact score the gate gave it (no re-scoring)."""
+    out = {}
+    try:
+        j = pd.read_csv(inst_dir / "journal.csv")
+    except (OSError, ValueError, pd.errors.EmptyDataError):
+        return out
+    if "DateTime" not in j.columns or "Score" not in j.columns:
+        return out
+    for _, r in j.iterrows():
+        ts = pd.to_datetime(r["DateTime"], errors="coerce")
+        if pd.notna(ts):
+            out[ts] = r["Score"]
+    return out
 
 
 def export_active(instrument, timestamp, tag_score=True):
-    """Export ONLY the instrument's ACTIVE variant to a timestamped Edgewonk
-    .xlsx under _edgewonk/<INSTRUMENT>/, so each click keeps the prior file
-    (chronological, never overwritten). Returns (out_path|None, note)."""
-    from .merge import live_timeframe
+    """Export the instrument's REALIZED live trades (executions.csv) to a
+    timestamped Edgewonk .xlsx under _edgewonk/<INSTRUMENT>/ — NOT the backtest.
+    Each click keeps the prior file (chronological, never overwritten).
+    Returns (out_path|None, note)."""
     inst_dir = config.DATA_ROOT / instrument if instrument else config.DATA_ROOT
-    s, info = variants.active_variant_for_tf(live_timeframe(inst_dir), inst_dir)
-    if s is None:
-        s, info = variants.active_variant(inst_dir)
-    if s is None or not info:
-        return None, "no active variant"
-    name = info.get("name", s)
-    src = _source_export_for(name)
-    if src is None:
-        return None, f"no source export found for '{name}' (re-save its backtest)"
+    src = inst_dir / "executions.csv"
+    try:
+        trades = pd.read_csv(src)
+    except (OSError, ValueError, pd.errors.EmptyDataError):
+        return None, "no live trades yet (executions.csv not found)"
+    if trades.empty:
+        return None, "no live trades yet (executions.csv empty)"
+
+    out = pd.DataFrame()
+    for col in EDGEWONK_COLUMNS:
+        out[col] = trades[col] if col in trades.columns else ""
+
+    if tag_score:
+        scores = _journal_scores(inst_dir)
+        et = (pd.to_datetime(trades["Entry time"], errors="coerce")
+              if "Entry time" in trades.columns else None)
+        base = out["Entry name"].astype(str)
+        names = []
+        for i in range(len(out)):
+            n = base.iloc[i].strip() or "Live"
+            s = scores.get(et.iloc[i]) if et is not None else None
+            names.append(f"{n} | ML:{s:.0f}" if s is not None and s == s else n)
+        out["Entry name"] = names
+
     dest_dir = config.DATA_ROOT / "_edgewonk" / (instrument or "root")
     dest_dir.mkdir(parents=True, exist_ok=True)
-    out_path = dest_dir / f"{src.stem}_{timestamp}.xlsx"
-    return to_edgewonk(src, out_path=out_path, tag_score=tag_score,
-                       instrument=instrument)
+    out_path = dest_dir / f"{instrument or 'root'}_live_{timestamp}.xlsx"
+    out.to_excel(out_path, index=False, engine="openpyxl")
+    return out_path, f"{len(out)} live trades"
 
 
 def export_active_all(tag_score=True):
-    """Export each instrument's ACTIVE variant into its own _edgewonk/<inst>/
-    folder, all stamped with one shared timestamp. Returns
+    """Export each instrument's REALIZED live trades into its own
+    _edgewonk/<inst>/ folder, all stamped with one shared timestamp. Returns
     [(instrument, out_path|None, note), …]."""
     from datetime import datetime
     ts = datetime.now().strftime("%Y-%m-%d_%H%M%S")

@@ -698,7 +698,7 @@ class ControlPanel(tk.Tk):
         body = ("\n".join(lines) if lines else "(nothing to export)")
         if messagebox.askyesno(
                 "Edgewonk",
-                f"Exported the ACTIVE strategy of {len(ok)} instrument(s) to "
+                f"Exported the LIVE trades of {len(ok)} instrument(s) to "
                 f"_edgewonk\\<instrument>\\ (timestamped — prior files kept):\n\n"
                 f"{body}{skip_txt}\n\nOpen the folder?"):
             try:
