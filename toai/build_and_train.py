@@ -101,8 +101,13 @@ def build_and_train(strategy_name: str | None = None, trades_file=None):
     from .merge import (live_timeframe, export_timeframe,
                         consolidate_training_bars, train_bars_for)
     live_tf = live_timeframe(config.DATA_DIR)
-    exp_tf = export_timeframe(trades_file) or live_tf
-    print(f"\nStrategy timeframe: {exp_tf}min   (chart is on {live_tf}min)")
+    # TF priority: manual panel override -> "…Xmin…" in the file name -> chart TF.
+    override = config.get_train_tf()
+    name_tf = export_timeframe(trades_file)
+    exp_tf = override or name_tf or live_tf
+    src = ("manual override" if override else
+           "file name" if name_tf else "chart TF")
+    print(f"\nStrategy timeframe: {exp_tf}min   (from {src}; chart is on {live_tf}min)")
 
     if exp_tf == live_tf:
         # On the matching chart — grow and use this TF's frozen history.

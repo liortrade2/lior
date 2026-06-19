@@ -640,6 +640,21 @@ class ControlPanel(tk.Tk):
         self.watch_lbl = ttk.Label(top, text="● running", foreground=GREEN)
         self.watch_lbl.pack(side="right")
 
+        # Training-timeframe selector. Auto = detect from the export file name
+        # ("…Xmin…") then the chart's TF; a specific choice overrides both, so
+        # you can drop an export and train it as any TF without renaming.
+        tf_row = ttk.Frame(self, padding=(10, 0, 10, 8))
+        tf_row.pack(fill="x")
+        ttk.Label(tf_row, text="Train next export as:",
+                  font=("Segoe UI", 9, "bold")).pack(side="left", padx=(0, 8))
+        cur = config.get_train_tf()
+        self.train_tf_var = tk.StringVar(value="auto" if cur is None else str(cur))
+        for label, val in (("Auto", "auto"), ("1m", "1"), ("2m", "2"),
+                           ("3m", "3"), ("5m", "5"), ("15m", "15")):
+            ttk.Radiobutton(tf_row, text=label, value=val,
+                            variable=self.train_tf_var,
+                            command=self._set_train_tf).pack(side="left", padx=(0, 6))
+
         body = ttk.Frame(self)
         body.pack(fill="both", expand=True, padx=10, pady=(0, 10))
         self.canvas = tk.Canvas(body, highlightthickness=0)
@@ -886,6 +901,11 @@ class ControlPanel(tk.Tk):
             self.apply_threshold(float(self.thr_var.get()))
         except ValueError:
             messagebox.showwarning("TOAI", "Threshold must be a number 0-100.")
+
+    def _set_train_tf(self):
+        # Persist the training-TF override the watch's auto-train reads.
+        v = self.train_tf_var.get()
+        config.set_train_tf(None if v == "auto" else int(v))
 
     def apply_threshold(self, value):
         """Write the live (global) threshold and refresh anything that depends

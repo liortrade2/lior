@@ -25,6 +25,25 @@ else:
 INSTRUMENT = os.environ.get("TOAI_INSTRUMENT") or None
 
 THRESHOLD_FILE = DATA_ROOT / "threshold.txt"
+# Manual training-timeframe override (None/"auto" = auto-detect from the export
+# file name "…Xmin…", falling back to the chart's current TF). Set from the
+# Control Panel when experimenting across timeframes; lives at the ROOT.
+TRAIN_TF_FILE = DATA_ROOT / "train_tf.txt"
+
+
+def get_train_tf():
+    """Override TF (int minutes) for the next training, or None = auto-detect."""
+    try:
+        v = TRAIN_TF_FILE.read_text().strip().lower()
+        return None if v in ("", "auto") else int(float(v))
+    except (FileNotFoundError, ValueError, OSError):
+        return None
+
+
+def set_train_tf(tf):
+    """Persist the training-TF override ('auto'/None to clear)."""
+    DATA_ROOT.mkdir(parents=True, exist_ok=True)
+    TRAIN_TF_FILE.write_text("auto" if tf in (None, "auto") else str(int(tf)))
 
 
 def set_instrument(name: str | None):
