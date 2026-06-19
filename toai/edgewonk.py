@@ -202,6 +202,8 @@ def _native_rows(grp, jlook) -> pd.DataFrame:
     out["Commission"] = [num(x) for x in col("Commission", "")]
     out["Highest price (optional)"] = [num(x) for x in col("Highest price", "")]
     out["Lowest price (optional)"] = [num(x) for x in col("Lowest price", "")]
+    out["Stop Loss (optional)"] = [num(x) for x in col("Stop Loss", "")]
+    out["Take Profit(optional)"] = [num(x) for x in col("Take Profit", "")]
     out["Breakeven?"] = ["No"] * n
 
     setups, st1, st2, st3, st4 = [], [], [], [], []

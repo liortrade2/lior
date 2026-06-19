@@ -53,6 +53,19 @@ namespace NinjaTrader.NinjaScript.AddOns
         private readonly object writeLock = new object();
         private readonly List<Account> hooked = new List<Account>();
 
+        // Initial Stop-Loss / Take-Profit capture per instrument, so Edgewonk
+        // gets SL/TP (and can compute R-Multiple). Entries here are Market
+        // orders, so any Stop order is the protective SL and any Limit order is
+        // the TP. We keep the FIRST price seen after each entry (the INITIAL
+        // risk — for a trailing SAR that's the SAR at entry). Net position is
+        // tracked from execution quantities (no Positions API needed).
+        private readonly object slLock = new object();
+        private readonly Dictionary<string, double> netQty = new Dictionary<string, double>();
+        private readonly Dictionary<string, double> initStop = new Dictionary<string, double>();
+        private readonly Dictionary<string, double> initTarget = new Dictionary<string, double>();
+        private readonly Dictionary<string, string> openKey = new Dictionary<string, string>();
+        private readonly Dictionary<string, double[]> doneSlTp = new Dictionary<string, double[]>();
+
         protected override void OnStateChange()
         {
             if (State == State.SetDefaults)
@@ -87,6 +100,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             if (a == null || hooked.Contains(a))
                 return;
             a.ExecutionUpdate += OnExecutionUpdate;
+            a.OrderUpdate += OnOrderUpdate;
             hooked.Add(a);
         }
 
@@ -95,6 +109,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             foreach (Account a in hooked)
             {
                 try { a.ExecutionUpdate -= OnExecutionUpdate; } catch { }
+                try { a.OrderUpdate -= OnOrderUpdate; } catch { }
             }
             hooked.Clear();
         }
@@ -106,12 +121,77 @@ namespace NinjaTrader.NinjaScript.AddOns
                 return;
             try
             {
+                TrackPosition(e);
                 WriteAccount(account);
             }
             catch (Exception ex)
             {
                 NinjaTrader.Code.Output.Process(
                     "TOAIExecutionLogger: " + ex.Message, PrintTo.OutputTab1);
+            }
+        }
+
+        // Capture the protective Stop / Target prices submitted right after an
+        // entry. Keep the first one per open trade = the INITIAL SL / TP.
+        private void OnOrderUpdate(object sender, OrderEventArgs e)
+        {
+            try
+            {
+                Order o = e.Order;
+                if (o == null || o.Instrument == null)
+                    return;
+                string instr = o.Instrument.MasterInstrument.Name;
+                lock (slLock)
+                {
+                    bool open = netQty.ContainsKey(instr) && netQty[instr] != 0;
+                    if (!open)
+                        return;   // only while a position is live
+                    if (o.OrderType == OrderType.StopMarket || o.OrderType == OrderType.StopLimit)
+                    {
+                        if (!initStop.ContainsKey(instr) && o.StopPrice > 0)
+                            initStop[instr] = o.StopPrice;
+                    }
+                    else if (o.OrderType == OrderType.Limit)
+                    {
+                        if (!initTarget.ContainsKey(instr) && o.LimitPrice > 0)
+                            initTarget[instr] = o.LimitPrice;
+                    }
+                }
+            }
+            catch { }
+        }
+
+        // Track net position from execution quantities (Long adds, Short
+        // subtracts) so we know when a trade opens (reset SL/TP) and closes
+        // (store the captured SL/TP under the entry-time key WriteInstrument
+        // looks up).
+        private void TrackPosition(ExecutionEventArgs e)
+        {
+            if (e == null || e.Execution == null || e.Execution.Instrument == null)
+                return;
+            Execution x = e.Execution;
+            string instr = x.Instrument.MasterInstrument.Name;
+            double signed = (x.MarketPosition == MarketPosition.Long ? 1.0 : -1.0) * x.Quantity;
+            lock (slLock)
+            {
+                double prev = netQty.ContainsKey(instr) ? netQty[instr] : 0.0;
+                double now = prev + signed;
+                netQty[instr] = now;
+                if (prev == 0 && now != 0)            // opened a new trade
+                {
+                    initStop.Remove(instr);
+                    initTarget.Remove(instr);
+                    openKey[instr] = instr + "|" +
+                        x.Time.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
+                }
+                else if (prev != 0 && now == 0)       // closed -> finalize
+                {
+                    string key = openKey.ContainsKey(instr) ? openKey[instr] : null;
+                    if (key != null)
+                        doneSlTp[key] = new double[] {
+                            initStop.ContainsKey(instr) ? initStop[instr] : double.NaN,
+                            initTarget.ContainsKey(instr) ? initTarget[instr] : double.NaN };
+                }
             }
         }
 
@@ -156,7 +236,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             StringBuilder sb = new StringBuilder();
             // Commission + MAE/MFE + Highest/Lowest price feed Edgewonk's
             // optional fields (the TOAI Python export maps them straight over).
-            sb.AppendLine("Trade number,Instrument,Account,Market pos.,Qty,Entry price,Exit price,Entry time,Exit time,Profit,Commission,MAE,MFE,Highest price,Lowest price");
+            sb.AppendLine("Trade number,Instrument,Account,Market pos.,Qty,Entry price,Exit price,Entry time,Exit time,Profit,Commission,MAE,MFE,Highest price,Lowest price,Stop Loss,Take Profit");
             foreach (Trade t in trades)
             {
                 Execution en = t.Entry;
@@ -166,6 +246,20 @@ namespace NinjaTrader.NinjaScript.AddOns
                 string pos = en != null ? en.MarketPosition.ToString() : "";
                 double entryPrice = en != null ? en.Price : 0;
                 double exitPrice = ex != null ? ex.Price : 0;
+
+                // Initial SL/TP captured at entry (blank if none was placed).
+                double sl = double.NaN, tp = double.NaN;
+                string slKey = inst + "|" + entryTime;
+                lock (slLock)
+                {
+                    if (doneSlTp.ContainsKey(slKey))
+                    {
+                        sl = doneSlTp[slKey][0];
+                        tp = doneSlTp[slKey][1];
+                    }
+                }
+                string slStr = double.IsNaN(sl) ? "" : sl.ToString(CultureInfo.InvariantCulture);
+                string tpStr = double.IsNaN(tp) ? "" : tp.ToString(CultureInfo.InvariantCulture);
 
                 double commission = (en != null ? en.Commission : 0) + (ex != null ? ex.Commission : 0);
                 // MAE/MFE come in $ — convert to points via the contract's point
@@ -182,10 +276,10 @@ namespace NinjaTrader.NinjaScript.AddOns
                 double lowest = isLong ? entryPrice - maePts : entryPrice - mfePts;
 
                 sb.AppendLine(string.Format(CultureInfo.InvariantCulture,
-                    "{0},{1},{2},{3},{4},{5},{6},{7},{8},{9},{10},{11},{12},{13},{14}",
+                    "{0},{1},{2},{3},{4},{5},{6},{7},{8},{9},{10},{11},{12},{13},{14},{15},{16}",
                     t.TradeNumber, inst, account.Name, pos, t.Quantity,
                     entryPrice, exitPrice, entryTime, exitTime, t.ProfitCurrency,
-                    commission, maeCur, mfeCur, highest, lowest));
+                    commission, maeCur, mfeCur, highest, lowest, slStr, tpStr));
             }
 
             // Atomic-ish write (temp + overwrite) so the Python watch never
