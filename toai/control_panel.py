@@ -914,6 +914,15 @@ class ControlPanel(tk.Tk):
                         f"ALLOW {sc.allow.win_rate:.0f}%{pf}  ·  "
                         f"takes {sc.selectivity:.0f}%{tag}")
                 color = GREEN if sc.edge_per_trade > 0 else RED
+            # Health: stale-model + live-vs-backtest drift warnings (roadmap #8).
+            try:
+                from . import health
+                h = health.check(inst)
+                if h["messages"]:
+                    text += "   ⚠ " + " · ".join(h["messages"])
+                    color = RED
+            except Exception:
+                pass
         except Exception:
             text, color = "filter edge: n/a", MUTED
         self._edge_result[inst] = (key, text, color)

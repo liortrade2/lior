@@ -27,7 +27,8 @@ MENU = """
   11. Expectancy model (train on $ not win/loss — compare + save variant)
   12. Position sizing (does score-tiered sizing beat uniform?)
   13. Export to Edgewonk (.xlsx, tagged with the TOAI score) ← NEW
-  14. Exit
+  14. Model health (stale-model + live-vs-backtest drift alerts) ← NEW
+  15. Exit
 """
 
 
@@ -153,7 +154,7 @@ def run_expectancy():
 def main():
     while True:
         print(MENU.format(data_dir=config.DATA_DIR))
-        choice = input("Select option [1-14]: ").strip()
+        choice = input("Select option [1-15]: ").strip()
 
         if choice == "1":
             from toai.simulate import write_sample_files
@@ -241,6 +242,12 @@ def main():
             print(f"\nReady in {config.DATA_ROOT}\\_edgewonk\\ — import the .xlsx into Edgewonk.")
 
         elif choice == "14":
+            from toai import health
+            print("\nMODEL HEALTH")
+            for inst in (config.list_instruments() or [None]):
+                print(health.format_report(inst))
+
+        elif choice == "15":
             sys.exit(0)
 
         else:
