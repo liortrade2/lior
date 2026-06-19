@@ -102,7 +102,7 @@ def build_and_train(strategy_name: str | None = None, trades_file=None):
                         consolidate_training_bars, train_bars_for)
     live_tf = live_timeframe(config.DATA_DIR)
     # TF priority: manual panel override -> "…Xmin…" in the file name -> chart TF.
-    override = config.get_train_tf()
+    override = config.get_train_tf(config.DATA_DIR)   # per-instrument override
     name_tf = export_timeframe(trades_file)
     exp_tf = override or name_tf or live_tf
     src = ("manual override" if override else

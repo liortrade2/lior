@@ -31,19 +31,32 @@ THRESHOLD_FILE = DATA_ROOT / "threshold.txt"
 TRAIN_TF_FILE = DATA_ROOT / "train_tf.txt"
 
 
-def get_train_tf():
-    """Override TF (int minutes) for the next training, or None = auto-detect."""
-    try:
-        v = TRAIN_TF_FILE.read_text().strip().lower()
-        return None if v in ("", "auto") else int(float(v))
-    except (FileNotFoundError, ValueError, OSError):
-        return None
+def get_train_tf(inst_dir=None):
+    """Training-TF override (int minutes) for the next training, or None =
+    auto-detect. PER-INSTRUMENT: reads <inst_dir>/train_tf.txt first, then the
+    root train_tf.txt as a global default — so MES can train as 2-min while MNQ
+    trains as 5-min. inst_dir=None uses the currently selected instrument."""
+    base = inst_dir if inst_dir is not None else DATA_DIR
+    for p in (base / "train_tf.txt", TRAIN_TF_FILE):
+        try:
+            v = p.read_text().strip().lower()
+        except (FileNotFoundError, OSError):
+            continue
+        if v in ("", "auto"):
+            return None
+        try:
+            return int(float(v))
+        except ValueError:
+            return None
+    return None
 
 
-def set_train_tf(tf):
-    """Persist the training-TF override ('auto'/None to clear)."""
-    DATA_ROOT.mkdir(parents=True, exist_ok=True)
-    TRAIN_TF_FILE.write_text("auto" if tf in (None, "auto") else str(int(tf)))
+def set_train_tf(tf, inst_dir=None):
+    """Persist the per-instrument training-TF override ('auto'/None to clear)."""
+    base = inst_dir if inst_dir is not None else DATA_DIR
+    base.mkdir(parents=True, exist_ok=True)
+    (base / "train_tf.txt").write_text(
+        "auto" if tf in (None, "auto") else str(int(tf)))
 
 
 def set_instrument(name: str | None):

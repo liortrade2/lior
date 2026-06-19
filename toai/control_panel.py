@@ -608,6 +608,7 @@ class ControlPanel(tk.Tk):
         self.badges = {}        # inst -> ttk.Label
         self.radio_vars = {}    # (inst, tf) -> tk.StringVar
         self.pf_vars = {}       # (inst, slug) -> tk.BooleanVar (in portfolio?)
+        self.train_tf_vars = {} # inst -> tk.StringVar (training-TF override)
         self.scorecards = {}    # inst -> ScorecardWindow (one per instrument)
         self.compares = {}      # inst -> VariantCompareWindow
         self._edge_labels = {}  # inst -> ttk.Label (the at-a-glance edge line)
@@ -639,21 +640,6 @@ class ControlPanel(tk.Tk):
         self.watch_btn.pack(side="right", padx=10)
         self.watch_lbl = ttk.Label(top, text="● running", foreground=GREEN)
         self.watch_lbl.pack(side="right")
-
-        # Training-timeframe selector. Auto = detect from the export file name
-        # ("…Xmin…") then the chart's TF; a specific choice overrides both, so
-        # you can drop an export and train it as any TF without renaming.
-        tf_row = ttk.Frame(self, padding=(10, 0, 10, 8))
-        tf_row.pack(fill="x")
-        ttk.Label(tf_row, text="Train next export as:",
-                  font=("Segoe UI", 9, "bold")).pack(side="left", padx=(0, 8))
-        cur = config.get_train_tf()
-        self.train_tf_var = tk.StringVar(value="auto" if cur is None else str(cur))
-        for label, val in (("Auto", "auto"), ("1m", "1"), ("2m", "2"),
-                           ("3m", "3"), ("5m", "5"), ("15m", "15")):
-            ttk.Radiobutton(tf_row, text=label, value=val,
-                            variable=self.train_tf_var,
-                            command=self._set_train_tf).pack(side="left", padx=(0, 6))
 
         body = ttk.Frame(self)
         body.pack(fill="both", expand=True, padx=10, pady=(0, 10))
@@ -741,6 +727,7 @@ class ControlPanel(tk.Tk):
         self.badges.clear()
         self.radio_vars.clear()
         self.pf_vars.clear()
+        self.train_tf_vars.clear()
         insts = config.list_instruments()
         if not insts:
             ttk.Label(self.inner, wraplength=660,
@@ -762,6 +749,22 @@ class ControlPanel(tk.Tk):
         self.badges[inst] = badge
         ttk.Button(head, text="📊 Scorecard", width=12,
                    command=lambda i=inst: self._scorecard(i)).pack(side="right", padx=(0, 10))
+
+        # Per-instrument training-TF selector — so MES can train as 2-min while
+        # MNQ trains as 5-min. Auto = detect from the export file name then the
+        # chart's TF; a specific choice overrides for THIS instrument only.
+        tf_row = ttk.Frame(card)
+        tf_row.pack(fill="x", pady=(4, 2))
+        ttk.Label(tf_row, text="Train as:",
+                  font=("Segoe UI", 9, "bold")).pack(side="left", padx=(0, 6))
+        cur = config.get_train_tf(d)
+        tfv = tk.StringVar(value="auto" if cur is None else str(cur))
+        self.train_tf_vars[inst] = tfv
+        for lbl, val in (("Auto", "auto"), ("1m", "1"), ("2m", "2"),
+                         ("3m", "3"), ("5m", "5"), ("15m", "15")):
+            ttk.Radiobutton(tf_row, text=lbl, value=val, variable=tfv,
+                            command=lambda i=inst, v=tfv: self._set_train_tf(i, v)
+                            ).pack(side="left", padx=(0, 5))
 
         vs = variants.list_variants(d)
         if not vs:
@@ -902,10 +905,11 @@ class ControlPanel(tk.Tk):
         except ValueError:
             messagebox.showwarning("TOAI", "Threshold must be a number 0-100.")
 
-    def _set_train_tf(self):
-        # Persist the training-TF override the watch's auto-train reads.
-        v = self.train_tf_var.get()
-        config.set_train_tf(None if v == "auto" else int(v))
+    def _set_train_tf(self, inst, var):
+        # Persist this instrument's training-TF override (per-instrument file the
+        # watch's auto-train reads). UI thread -> pass inst_dir explicitly.
+        v = var.get()
+        config.set_train_tf(None if v == "auto" else int(v), _inst_dir(inst))
 
     def apply_threshold(self, value):
         """Write the live (global) threshold and refresh anything that depends
