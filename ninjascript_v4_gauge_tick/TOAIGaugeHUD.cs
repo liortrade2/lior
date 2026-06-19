@@ -34,12 +34,18 @@ namespace NinjaTrader.NinjaScript.Indicators
 {
     public class TOAIGaugeHUD : Indicator
     {
-        private const string RootDir = @"C:\LIOR_ML";
-        private const string ThresholdFile = RootDir + @"\threshold.txt";
+        private const string LiveRoot = @"C:\LIOR_ML";
+        private const string PlaybackRoot = @"C:\LIOR_ML_PLAYBACK";
+        private string RootDir = LiveRoot;
+        private string ThresholdFile = LiveRoot + @"\threshold.txt";
         private string scoreFile, entryWindowFile;
 
         [NinjaScriptProperty]
         public double MinProbabilityThreshold { get; set; } = 55.0;
+
+        // Read scores from C:\LIOR_ML_PLAYBACK on a Market-Replay chart.
+        [NinjaScriptProperty]
+        public bool PlaybackMode { get; set; } = false;
 
         private double score = double.NaN, threshold = 55.0;
         private bool passed, inWindow = true, hasWindow;
@@ -63,6 +69,8 @@ namespace NinjaTrader.NinjaScript.Indicators
             }
             else if (State == State.DataLoaded)
             {
+                RootDir = PlaybackMode ? PlaybackRoot : LiveRoot;
+                ThresholdFile = RootDir + @"\threshold.txt";
                 string dataDir = RootDir + @"\" +
                     TOAIExporterGaugeTick.SanitizeName(Bars.Instrument.MasterInstrument.Name);
                 scoreFile = dataDir + @"\score.txt";

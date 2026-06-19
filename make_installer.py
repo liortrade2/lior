@@ -30,6 +30,7 @@ INCLUDE_FILES = [
     "CLAUDE.md",
     "RESTORE_POINTS.md",
     "TOAI_Control.bat",
+    "TOAI_Playback.bat",
     "TOAI_Menu.bat",
     "TOAI_Train.bat",
     "TOAI_Update.bat",

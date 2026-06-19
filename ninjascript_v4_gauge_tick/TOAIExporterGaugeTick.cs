@@ -35,8 +35,12 @@ namespace NinjaTrader.NinjaScript.Indicators
 {
     public class TOAIExporterGaugeTick : Indicator
     {
-        private const string RootDir = @"C:\LIOR_ML";
-        private const string ThresholdFile = RootDir + @"\threshold.txt";
+        private const string LiveRoot = @"C:\LIOR_ML";
+        private const string PlaybackRoot = @"C:\LIOR_ML_PLAYBACK";
+        // Resolved in DataLoaded from PlaybackMode so Playback never touches the
+        // live data root. ThresholdFile follows the same root.
+        private string RootDir = LiveRoot;
+        private string ThresholdFile = LiveRoot + @"\threshold.txt";
         private string dataDir, featuresFile, barDataFile, scoreFile, barScoresFile,
             entryWindowFile;
         private const string Header =
@@ -60,6 +64,12 @@ namespace NinjaTrader.NinjaScript.Indicators
         // BloodHound strategy gates on TOAIExporter.MLPass of its own instance.
         [NinjaScriptProperty]
         public string ScoreFileName { get; set; } = "score.txt";
+
+        // Route ALL files to C:\LIOR_ML_PLAYBACK instead of C:\LIOR_ML, so a
+        // Market-Replay chart can be tested without polluting live data. Set
+        // true on a dedicated Playback chart (or template).
+        [NinjaScriptProperty]
+        public bool PlaybackMode { get; set; } = false;
 
         public bool MlFilterPassed { get; private set; }
 
@@ -148,6 +158,8 @@ namespace NinjaTrader.NinjaScript.Indicators
             }
             else if (State == State.DataLoaded)
             {
+                RootDir = PlaybackMode ? PlaybackRoot : LiveRoot;
+                ThresholdFile = RootDir + @"\threshold.txt";
                 dataDir = RootDir + @"\" + SanitizeName(Instrument.MasterInstrument.Name);
                 featuresFile = dataDir + @"\current_features.csv";
                 barDataFile = dataDir + @"\bar_data.csv";

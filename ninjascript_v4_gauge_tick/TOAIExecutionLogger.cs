@@ -48,8 +48,10 @@ namespace NinjaTrader.NinjaScript.AddOns
     public class TOAIExecutionLogger : NinjaTrader.NinjaScript.AddOnBase
     {
         private const string DefaultDataRoot = @"C:\LIOR_ML";
+        private const string DefaultPlaybackRoot = @"C:\LIOR_ML_PLAYBACK";
 
         private string dataRoot;
+        private string playbackRoot;
         private readonly object writeLock = new object();
         private readonly List<Account> hooked = new List<Account>();
 
@@ -74,6 +76,10 @@ namespace NinjaTrader.NinjaScript.AddOns
                 Description = "Logs completed trades to <DataRoot>\\<INSTRUMENT>\\executions.csv for the TOAI journal.";
                 string env = Environment.GetEnvironmentVariable("TOAI_DATA_DIR");
                 dataRoot = string.IsNullOrWhiteSpace(env) ? DefaultDataRoot : env;
+                // Market-Replay fills come from the "Playback101" account — route
+                // them to a separate root so the live journal stays clean.
+                string pbEnv = Environment.GetEnvironmentVariable("TOAI_PLAYBACK_DIR");
+                playbackRoot = string.IsNullOrWhiteSpace(pbEnv) ? DefaultPlaybackRoot : pbEnv;
             }
             else if (State == State.Configure)
             {
@@ -222,14 +228,19 @@ namespace NinjaTrader.NinjaScript.AddOns
                     byInst[inst].Add(t);
                 }
 
+                // Playback fills (account "Playback101") go to the playback root.
+                bool isPlayback = account.Name != null &&
+                    account.Name.IndexOf("Playback", StringComparison.OrdinalIgnoreCase) >= 0;
+                string root = isPlayback ? playbackRoot : dataRoot;
+
                 foreach (KeyValuePair<string, List<Trade>> kv in byInst)
-                    WriteInstrument(account, kv.Key, kv.Value);
+                    WriteInstrument(root, account, kv.Key, kv.Value);
             }
         }
 
-        private void WriteInstrument(Account account, string inst, List<Trade> trades)
+        private void WriteInstrument(string root, Account account, string inst, List<Trade> trades)
         {
-            string dir = Path.Combine(dataRoot, inst);
+            string dir = Path.Combine(root, inst);
             Directory.CreateDirectory(dir);
             string dest = Path.Combine(dir, "executions.csv");
 
