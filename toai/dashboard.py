@@ -840,9 +840,8 @@ def main():
                  "val": f"{u(ml_edge):+.2f}{usym}" if ml_edge is not None else "—",
                  "sub": "ALLOW vs all", "sub_color": GREEN},
             ]
-            st.markdown(kpi_cards_html(cards), unsafe_allow_html=True)
-
-            left, right = st.columns([3.4, 1.1], gap="medium")
+            # Calendar (wide, left) + Evaluation (narrow, pushed to the right).
+            left, right = st.columns([4, 1.15], gap="large")
             with left:
                 st.subheader("Profit calendar")
                 dp = daily_pnl(ex)
@@ -872,6 +871,9 @@ def main():
                 html = "".join(f"<div class='evrow'><span>{a}</span><b>{b}</b></div>"
                                for a, b in rows)
                 st.markdown(f"<div class='evpanel'>{html}</div>", unsafe_allow_html=True)
+
+            # KPI cards row — now BELOW the calendar.
+            st.markdown(kpi_cards_html(cards), unsafe_allow_html=True)
 
 
     # ---- TAB 1: ML edge (works for both sources via the scorecard machinery) ----
