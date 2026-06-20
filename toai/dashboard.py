@@ -367,7 +367,7 @@ html, body, [class*="css"], .stMarkdown, button, input, select, textarea, .stSli
 section[data-testid="stSidebar"] { display: none; }
 [data-testid="stExpander"] summary { font-weight: 700; }
 h1 { font-weight: 800 !important; letter-spacing: -0.6px; color: #111827; font-size: 1.7rem; }
-h2, h3 { font-weight: 700 !important; letter-spacing: -0.3px; color: #1f2937; }
+h2, h3 { font-weight: 700 !important; letter-spacing: -0.3px; color: #1f2937; font-size: 1.15rem !important; }
 /* KPI metric cards — white with a soft shadow (Edgewonk look) */
 [data-testid="stMetric"] {
   background: #ffffff; border: 1px solid #eceef1;
@@ -408,7 +408,7 @@ hr { margin: 0.5rem 0; border-color: #e5e7eb; }
 .evpanel { background: #ffffff; border: 1px solid #eceef1; border-radius: 14px;
   padding: 4px 16px; box-shadow: 0 1px 3px rgba(16,24,40,0.05); }
 .evrow { display: flex; justify-content: space-between; align-items: center;
-  padding: 8px 0; border-bottom: 1px solid #f1f3f5; font-size: 0.9rem; }
+  padding: 6px 0; border-bottom: 1px solid #f1f3f5; font-size: 0.8rem; }
 .evrow:last-child { border-bottom: none; }
 .evrow span { color: #6b7280; } .evrow b { color: #111827; font-weight: 700; }
 /* Custom KPI cards with mini visuals */
@@ -416,7 +416,7 @@ hr { margin: 0.5rem 0; border-color: #e5e7eb; }
 .kpi-card { flex: 1; background:#fff; border:1px solid #eceef1; border-radius:14px;
   padding:14px 16px; box-shadow:0 1px 3px rgba(16,24,40,.06); position:relative; min-height:86px; }
 .kpi-label { color:#6b7280; font-size:.8rem; font-weight:600; }
-.kpi-val { color:#111827; font-size:1.55rem; font-weight:800; margin-top:4px; letter-spacing:-0.5px; }
+.kpi-val { color:#111827; font-size:1.3rem; font-weight:800; margin-top:3px; letter-spacing:-0.5px; }
 .kpi-sub { font-size:.72rem; font-weight:600; margin-top:3px; color:#6b7280; }
 .kpi-spark { position:absolute; top:14px; right:14px; }
 /* Profit calendar (HTML grid) */
@@ -424,10 +424,10 @@ hr { margin: 0.5rem 0; border-color: #e5e7eb; }
   box-shadow:0 1px 3px rgba(16,24,40,.05); }
 .cal-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
 .cal-title { font-weight:700; font-size:1.05rem; color:#111827; }
-.cal-grid { display:grid; grid-template-columns:repeat(7,1fr) 0.8fr; gap:6px; }
-.cal-dow { font-size:.7rem; color:#9aa3ad; font-weight:600; text-align:center; }
-.cal-cell { position:relative; min-height:58px; border-radius:10px; background:#f3f5f8;
-  border:1px solid #eef0f3; padding:6px 8px; }
+.cal-grid { display:grid; grid-template-columns:repeat(7,1fr) 0.7fr; gap:6px; }
+.cal-dow { font-size:.68rem; color:#9aa3ad; font-weight:600; text-align:center; }
+.cal-cell { position:relative; aspect-ratio:1/1; border-radius:10px; background:#f3f5f8;
+  border:1px solid #eef0f3; padding:5px 7px; }
 .cal-cell.empty { background:transparent; border:none; }
 .cal-cell.win { background:#e8f6ee; border-color:#cdebd8; }
 .cal-cell.loss { background:#fdeaea; border-color:#f6cccc; }
@@ -842,7 +842,7 @@ def main():
             ]
             st.markdown(kpi_cards_html(cards), unsafe_allow_html=True)
 
-            left, right = st.columns([3, 2], gap="medium")
+            left, right = st.columns([3.4, 1.1], gap="medium")
             with left:
                 st.subheader("Profit calendar")
                 dp = daily_pnl(ex)
@@ -873,16 +873,6 @@ def main():
                                for a, b in rows)
                 st.markdown(f"<div class='evpanel'>{html}</div>", unsafe_allow_html=True)
 
-            st.divider()
-            jc = st.columns([1, 2])
-            if jc[0].button("💾 Save as 1060×512 journal HTML", width='stretch'):
-                doc = journal_doc(kpi_cards_html(cards),
-                                  calendar_html(mdf, usym.strip() or "$"), rows)
-                dest = config.DATA_ROOT / "_journal"
-                dest.mkdir(exist_ok=True)
-                p = dest / f"{inst}_journal.html"
-                p.write_text(doc, encoding="utf-8")
-                jc[1].success(f"Saved → {p}")
 
     # ---- TAB 1: ML edge (works for both sources via the scorecard machinery) ----
     elif view == "🎯 ML edge":
