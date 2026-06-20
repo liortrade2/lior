@@ -390,6 +390,32 @@ hr { margin: 0.5rem 0; border-color: #e5e7eb; }
   padding: 8px 0; border-bottom: 1px solid #f1f3f5; font-size: 0.9rem; }
 .evrow:last-child { border-bottom: none; }
 .evrow span { color: #6b7280; } .evrow b { color: #111827; font-weight: 700; }
+/* Custom KPI cards with mini visuals */
+.kpi-row { display: flex; gap: 14px; margin-bottom: 16px; }
+.kpi-card { flex: 1; background:#fff; border:1px solid #eceef1; border-radius:14px;
+  padding:14px 16px; box-shadow:0 1px 3px rgba(16,24,40,.06); position:relative; min-height:86px; }
+.kpi-label { color:#6b7280; font-size:.8rem; font-weight:600; }
+.kpi-val { color:#111827; font-size:1.55rem; font-weight:800; margin-top:4px; letter-spacing:-0.5px; }
+.kpi-sub { font-size:.72rem; font-weight:600; margin-top:3px; color:#6b7280; }
+.kpi-spark { position:absolute; top:14px; right:14px; }
+/* Profit calendar (HTML grid) */
+.cal { background:#fff; border:1px solid #eceef1; border-radius:14px; padding:14px 16px;
+  box-shadow:0 1px 3px rgba(16,24,40,.05); }
+.cal-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
+.cal-title { font-weight:700; font-size:1.05rem; color:#111827; }
+.cal-grid { display:grid; grid-template-columns:repeat(7,1fr) 0.8fr; gap:6px; }
+.cal-dow { font-size:.7rem; color:#9aa3ad; font-weight:600; text-align:center; }
+.cal-cell { position:relative; min-height:58px; border-radius:10px; background:#f3f5f8;
+  border:1px solid #eef0f3; padding:6px 8px; }
+.cal-cell.empty { background:transparent; border:none; }
+.cal-cell.win { background:#e8f6ee; border-color:#cdebd8; }
+.cal-cell.loss { background:#fdeaea; border-color:#f6cccc; }
+.cal-day { position:absolute; top:5px; right:8px; font-size:.7rem; color:#9aa3ad; font-weight:600; }
+.cal-pnl { font-size:.82rem; font-weight:800; margin-top:20px; }
+.cal-pnl.win { color:#16a34a; } .cal-pnl.loss { color:#dc2626; }
+.cal-n { font-size:.64rem; color:#6b7280; }
+.cal-total { background:#fafbfc; border:1px dashed #e5e7eb; border-radius:10px;
+  display:flex; align-items:center; justify-content:center; }
 </style>
 """
 
@@ -409,6 +435,97 @@ def _register_plotly_theme(go, pio):
         margin=dict(t=44, l=12, r=12, b=12),
     ))
     pio.templates.default = "toai"
+
+
+# --- tiny inline-SVG widgets for the KPI cards (the Edgewonk mini-visuals) --- #
+def _spark_svg(vals, color="#16a34a", w=92, h=34):
+    vals = [v for v in vals if v == v]
+    if len(vals) < 2:
+        return ""
+    lo, hi = min(vals), max(vals)
+    rng = (hi - lo) or 1
+    n = len(vals)
+    pts = " ".join(f"{i/(n-1)*w:.1f},{h-(v-lo)/rng*h:.1f}" for i, v in enumerate(vals))
+    return (f'<svg width="{w}" height="{h}" viewBox="0 0 {w} {h}"><polyline points="{pts}" '
+            f'fill="none" stroke="{color}" stroke-width="2" stroke-linejoin="round" '
+            f'stroke-linecap="round"/></svg>')
+
+
+def _gauge_svg(pct, w=66, h=40):
+    import math
+    r, cx, cy = 27, w / 2, h - 3
+    def pt(frac):
+        a = math.pi * (1 - max(0.0, min(1.0, frac)))
+        return cx + r * math.cos(a), cy - r * math.sin(a)
+    x0, y0 = pt(0); x1, y1 = pt(1); xp, yp = pt(pct / 100)
+    return (f'<svg width="{w}" height="{h}" viewBox="0 0 {w} {h}">'
+            f'<path d="M{x0:.1f},{y0:.1f} A{r},{r} 0 0 1 {x1:.1f},{y1:.1f}" fill="none" '
+            f'stroke="#e5e7eb" stroke-width="6" stroke-linecap="round"/>'
+            f'<path d="M{x0:.1f},{y0:.1f} A{r},{r} 0 0 1 {xp:.1f},{yp:.1f}" fill="none" '
+            f'stroke="#16a34a" stroke-width="6" stroke-linecap="round"/></svg>')
+
+
+def _splitbar_svg(win, loss, w=92, h=9):
+    a, b = abs(win or 0), abs(loss or 0)
+    wg = a / ((a + b) or 1) * w
+    return (f'<svg width="{w}" height="{h}"><rect x="0" y="0" width="{wg:.1f}" height="{h}" '
+            f'rx="3" fill="#16a34a"/><rect x="{wg:.1f}" y="0" width="{w-wg:.1f}" height="{h}" '
+            f'rx="3" fill="#ef4444"/></svg>')
+
+
+def kpi_cards_html(cards) -> str:
+    """cards: list of {label, val, sub?, sub_color?, visual?(svg)}."""
+    out = []
+    for c in cards:
+        vis = f'<div class="kpi-spark">{c["visual"]}</div>' if c.get("visual") else ""
+        sub = (f'<div class="kpi-sub" style="color:{c.get("sub_color", "#6b7280")}">'
+               f'{c["sub"]}</div>') if c.get("sub") else ""
+        out.append(f'<div class="kpi-card">{vis}<div class="kpi-label">{c["label"]}</div>'
+                   f'<div class="kpi-val">{c["val"]}</div>{sub}</div>')
+    return f'<div class="kpi-row">{"".join(out)}</div>'
+
+
+def calendar_html(mdf, unit_label="$") -> str:
+    """An Edgewonk-style month grid: rounded day tiles, trade-days tinted
+    green/red with the P&L and trade count, plus a weekly Total column."""
+    import calendar
+    m = {pd.Timestamp(d).date(): (p, n)
+         for d, p, n in zip(mdf["Day"], mdf["uPnL"], mdf["count"])}
+    if not m:
+        return "<div class='cal'>No trades this month.</div>"
+    any_d = next(iter(m))
+    weeks = calendar.Calendar(firstweekday=0).monthdatescalendar(any_d.year, any_d.month)
+    head = "".join(f"<div class='cal-dow'>{d}</div>"
+                   for d in ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")) \
+        + "<div class='cal-dow'>Total</div>"
+    cells = []
+    for wk in weeks:
+        wtot = 0.0
+        for day in wk:
+            if day.month != any_d.month:
+                cells.append("<div class='cal-cell empty'></div>")
+                continue
+            info = m.get(day)
+            if info:
+                p, n = info
+                wtot += p
+                cls = "win" if p >= 0 else "loss"
+                cells.append(
+                    f"<div class='cal-cell {cls}'><div class='cal-day'>{day.day}</div>"
+                    f"<div class='cal-pnl {cls}'>{p:+.0f}</div>"
+                    f"<div class='cal-n'>{int(n)} trade{'s' if n != 1 else ''}</div></div>")
+            else:
+                cells.append(f"<div class='cal-cell'><div class='cal-day'>{day.day}</div></div>")
+        if wtot:
+            tcls = "win" if wtot >= 0 else "loss"
+            cells.append(f"<div class='cal-total'><span class='cal-pnl {tcls}' "
+                         f"style='margin:0'>{wtot:+.0f}</span></div>")
+        else:
+            cells.append("<div class='cal-total'></div>")
+    title = pd.Timestamp(any_d).strftime("%B %Y")
+    return (f"<div class='cal'><div class='cal-head'><div class='cal-title'>{title}</div>"
+            f"<div class='cal-dow'>in {unit_label}</div></div>"
+            f"<div class='cal-grid'>{head}{''.join(cells)}</div></div>")
 
 
 # --------------------------------------------------------------------------- #
@@ -482,15 +599,23 @@ def main():
                     scored, threshold, inst, out_of_sample=oos,
                     realized=(source == "Realized fills"))
                 ml_edge = _sc.edge_per_trade if _sc else None
-            c = st.columns(5)
-            c[0].metric("Net P&L", f"{u(k['net']):,.2f}{usym}")
-            c[1].metric("Win rate", f"{k['win_rate']:.0f}%")
-            c[2].metric("Avg / trade", f"{u(k['expectancy']):,.2f}{usym}")
-            c[3].metric("Profit factor",
-                        f"{k['profit_factor']:.2f}" if k["profit_factor"] else "—")
-            c[4].metric("ML edge / trade",
-                        f"{u(ml_edge):+.2f}{usym}" if ml_edge is not None else "—",
-                        "ALLOW vs all")
+            cum = (pd.to_numeric(ex["Profit"], errors="coerce").fillna(0)
+                   .cumsum().apply(u).tolist())
+            cards = [
+                {"label": "Net P&L", "val": f"{u(k['net']):,.2f}{usym}",
+                 "visual": _spark_svg(cum, GREEN if k["net"] >= 0 else RED)},
+                {"label": "Win rate", "val": f"{k['win_rate']:.0f}%",
+                 "visual": _gauge_svg(k["win_rate"])},
+                {"label": "Avg / trade", "val": f"{u(k['expectancy']):,.2f}{usym}",
+                 "visual": _splitbar_svg(k["avg_win"], k["avg_loss"]),
+                 "sub": f"win {u(k['avg_win']):.1f} · loss {u(k['avg_loss']):.1f}"},
+                {"label": "Profit factor",
+                 "val": f"{k['profit_factor']:.2f}" if k["profit_factor"] else "—"},
+                {"label": "ML edge / trade",
+                 "val": f"{u(ml_edge):+.2f}{usym}" if ml_edge is not None else "—",
+                 "sub": "ALLOW vs all", "sub_color": GREEN},
+            ]
+            st.markdown(kpi_cards_html(cards), unsafe_allow_html=True)
 
             left, right = st.columns([3, 2], gap="medium")
             with left:
@@ -498,17 +623,10 @@ def main():
                 dp = daily_pnl(ex)
                 dp["Day"] = pd.to_datetime(dp["Day"])
                 dp["uPnL"] = dp["sum"].apply(u)
-                msel = sorted(dp["Day"].dt.to_period("M").astype(str).unique())[-1]
+                msel = dp["Day"].dt.to_period("M").astype(str).max()
                 mdf = dp[dp["Day"].dt.to_period("M").astype(str) == msel]
-                z, txt = _calendar_grid(mdf)
-                fig = go.Figure(go.Heatmap(
-                    z=z, x=["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
-                    text=txt, texttemplate="%{text}", colorscale="RdYlGn", zmid=0,
-                    showscale=False, hoverinfo="text"))
-                fig.update_layout(title=msel, height=320,
-                                  yaxis=dict(autorange="reversed", showgrid=False),
-                                  xaxis=dict(showgrid=False))
-                st.plotly_chart(fig, width='stretch')
+                st.markdown(calendar_html(mdf, usym.strip() or "$"),
+                            unsafe_allow_html=True)
             with right:
                 st.subheader("Evaluation")
                 hold = f"{ev['avg_hold']:.0f}" if ev["avg_hold"] == ev["avg_hold"] else "—"
