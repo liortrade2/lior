@@ -311,16 +311,77 @@ def _net_stats(pnl: pd.Series) -> dict:
 
 
 # --------------------------------------------------------------------------- #
+#  Look & feel — a cohesive dark theme so the dashboard reads like a product,
+#  not a default Streamlit app. CSS skins the cards/tabs/typography; a Plotly
+#  template makes every chart transparent + consistently styled in one place.
+# --------------------------------------------------------------------------- #
+THEME_CSS = """
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap');
+html, body, [class*="css"], .stMarkdown, button, input, select, textarea, .stSlider {
+  font-family: 'Manrope', -apple-system, system-ui, sans-serif !important;
+}
+.block-container { padding-top: 2.0rem; padding-bottom: 3rem; max-width: 1420px; }
+h1 { font-weight: 800 !important; letter-spacing: -0.6px; }
+h2, h3 { font-weight: 700 !important; letter-spacing: -0.3px; }
+/* KPI metric cards */
+[data-testid="stMetric"] {
+  background: linear-gradient(180deg, #161b22 0%, #11161d 100%);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 14px; padding: 14px 16px 12px 16px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.35);
+}
+[data-testid="stMetricValue"] { font-weight: 700; }
+[data-testid="stMetricLabel"] { opacity: 0.7; font-size: 0.8rem; }
+/* Tabs — accent underline on the active one */
+[data-baseweb="tab-list"] { gap: 2px; border-bottom: 1px solid rgba(255,255,255,0.08); }
+[data-baseweb="tab"] { font-weight: 600; padding: 9px 15px; }
+[data-baseweb="tab"][aria-selected="true"] { color: #22c55e !important; }
+[data-baseweb="tab-highlight"] { background-color: #22c55e !important; height: 3px; }
+/* Chart + table panels get a subtle framed card look */
+[data-testid="stPlotlyChart"], [data-testid="stDataFrame"] {
+  background: rgba(255,255,255,0.015);
+  border: 1px solid rgba(255,255,255,0.05);
+  border-radius: 14px; padding: 8px;
+}
+section[data-testid="stSidebar"] { border-right: 1px solid rgba(255,255,255,0.06); }
+section[data-testid="stSidebar"] h2 { font-size: 1.05rem; }
+hr { margin: 0.6rem 0; border-color: rgba(255,255,255,0.07); }
+</style>
+"""
+
+
+def _register_plotly_theme(go, pio):
+    """One Plotly template so every chart is transparent + consistently styled."""
+    pio.templates["toai"] = go.layout.Template(layout=dict(
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(family="Manrope, sans-serif", color="#c9d1d9", size=13),
+        colorway=["#22c55e", "#f43f5e", "#38bdf8", "#a78bfa", "#fbbf24", "#34d399"],
+        xaxis=dict(gridcolor="rgba(255,255,255,0.06)", zerolinecolor="rgba(255,255,255,0.12)",
+                   linecolor="rgba(255,255,255,0.10)"),
+        yaxis=dict(gridcolor="rgba(255,255,255,0.06)", zerolinecolor="rgba(255,255,255,0.12)",
+                   linecolor="rgba(255,255,255,0.10)"),
+        legend=dict(bgcolor="rgba(0,0,0,0)", borderwidth=0),
+        margin=dict(t=44, l=12, r=12, b=12),
+    ))
+    pio.templates.default = "toai"
+
+
+# --------------------------------------------------------------------------- #
 #  Streamlit UI (imports the heavy libs lazily, so the helpers above stay light)
 # --------------------------------------------------------------------------- #
 def main():
     import streamlit as st
     import plotly.graph_objects as go
+    import plotly.io as pio
 
-    GREEN, RED, MUTED, ACCENT = "#1b8a3a", "#c0392b", "#8a8a8a", "#8e44ad"
+    # Brighter, cohesive palette that matches the Plotly template + CSS accent.
+    GREEN, RED, MUTED, ACCENT = "#22c55e", "#f43f5e", "#8b949e", "#a78bfa"
     mode = config.MODE_LABEL  # LIVE / PLAYBACK
 
     st.set_page_config(page_title=f"TOAI Analytics — {mode}", layout="wide")
+    _register_plotly_theme(go, pio)
+    st.markdown(THEME_CSS, unsafe_allow_html=True)
     if config.IS_PLAYBACK:
         st.warning("⏵ PLAYBACK MODE — replay data, not live money "
                    "(root: C:\\LIOR_ML_PLAYBACK)")
