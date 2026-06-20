@@ -363,7 +363,9 @@ html, body, [class*="css"], .stMarkdown, button, input, select, textarea, .stSli
   font-family: 'Manrope', -apple-system, system-ui, sans-serif !important;
 }
 .stApp { background: #f6f8fa; }
-.block-container { padding-top: 1.3rem; padding-bottom: 1.2rem; max-width: 1500px; }
+.block-container { padding-top: 0.4rem; padding-bottom: 0.6rem; max-width: 1500px; }
+section[data-testid="stSidebar"] { display: none; }
+[data-testid="stExpander"] summary { font-weight: 700; }
 h1 { font-weight: 800 !important; letter-spacing: -0.6px; color: #111827; font-size: 1.7rem; }
 h2, h3 { font-weight: 700 !important; letter-spacing: -0.3px; color: #1f2937; }
 /* KPI metric cards — white with a soft shadow (Edgewonk look) */
@@ -595,35 +597,31 @@ def main():
     _register_plotly_theme(go, pio)
     st.markdown(THEME_CSS, unsafe_allow_html=True)
     if config.IS_PLAYBACK:
-        st.warning("⏵ PLAYBACK MODE — replay data, not live money "
-                   "(root: C:\\LIOR_ML_PLAYBACK)")
-    st.title(f"📈 TOAI Analytics — {mode}")
-    st.caption("ML-aware: every metric is sliced by the model's score and the gate's "
-               "verdict. Reads your local executions/journal/bar data — nothing leaves "
-               "this machine.")
+        st.caption("⏵ PLAYBACK — replay data, not live money.")
 
     insts = instruments()
     if not insts:
         st.info("No instruments found under the data root yet.")
         return
 
-    with st.sidebar:
-        st.header("Filters")
-        inst = st.selectbox("Instrument", insts)
-        source = st.radio("Data source", ["Realized fills", "Walk-forward backtest"],
-                          help="Realized = your actual fills. Walk-forward = honest "
-                               "out-of-sample backtest of the active model.")
+    # No title, no sidebar — filters live in a collapsible top bar so the
+    # journal uses the full width and fits a small ~1060x512 window; maximize
+    # the window to work with the other tabs.
+    with st.expander("⚙ Filters & goals", expanded=False):
+        fc = st.columns([1.2, 1.6, 2.2, 1.4])
+        inst = fc[0].selectbox("Instrument", insts)
+        source = fc[1].radio("Data source", ["Realized fills", "Walk-forward backtest"],
+                             help="Realized = your actual fills. Walk-forward = "
+                                  "out-of-sample backtest of the active model.")
         d = _inst_dir(inst)
         live_thr = config.get_threshold(d)
-        threshold = st.slider("ML gate threshold", 0, 100, int(live_thr),
-                              help=f"Live threshold is {live_thr:g}. Drag to explore "
-                                   "what a different gate would do.")
-        unit = st.radio("Display unit", ["$", "points", "ticks"], horizontal=True)
-        st.divider()
-        st.caption("🎯 Goals (net P&L targets)")
-        goal_day = st.number_input("Daily goal ($)", value=200, step=50)
-        goal_week = st.number_input("Weekly goal ($)", value=800, step=100)
-        goal_month = st.number_input("Monthly goal ($)", value=3000, step=250)
+        threshold = fc[2].slider("ML gate threshold", 0, 100, int(live_thr),
+                                 help=f"Live threshold is {live_thr:g}.")
+        unit = fc[3].radio("Display unit", ["$", "points", "ticks"])
+        gc = st.columns(3)
+        goal_day = gc[0].number_input("Daily goal ($)", value=200, step=50)
+        goal_week = gc[1].number_input("Weekly goal ($)", value=800, step=100)
+        goal_month = gc[2].number_input("Monthly goal ($)", value=3000, step=250)
 
     scored, _thr, oos, dfrom, dto = scored_for(inst, source)
     ex = load_realized(inst)
