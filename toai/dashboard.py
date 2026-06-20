@@ -412,13 +412,15 @@ hr { margin: 0.5rem 0; border-color: #e5e7eb; }
 .evrow:last-child { border-bottom: none; }
 .evrow span { color: #6b7280; } .evrow b { color: #111827; font-weight: 700; }
 /* Custom KPI cards with mini visuals */
-.kpi-row { display: flex; gap: 12px; margin-top: 10px; }
-.kpi-card { flex: 1; background:#fff; border:1px solid #eceef1; border-radius:14px;
-  padding:11px 14px; box-shadow:0 1px 3px rgba(16,24,40,.06); position:relative; min-height:72px; }
-.kpi-label { color:#6b7280; font-size:.8rem; font-weight:600; }
-.kpi-val { color:#111827; font-size:1.3rem; font-weight:800; margin-top:3px; letter-spacing:-0.5px; }
-.kpi-sub { font-size:.72rem; font-weight:600; margin-top:3px; color:#6b7280; }
-.kpi-spark { position:absolute; top:14px; right:14px; }
+.kpi-row { display: flex; gap: 14px; margin-top: 12px; width: 100%; }
+.kpi-card { flex: 1 1 0; min-width: 0; background:#fff; border:1px solid #eceef1;
+  border-radius:14px; padding:12px 16px; box-shadow:0 1px 3px rgba(16,24,40,.06);
+  display:flex; flex-direction:column; justify-content:center; min-height:96px; }
+.kpi-label { color:#6b7280; font-size:.82rem; font-weight:600; }
+.kpi-mid { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:4px; }
+.kpi-val { color:#111827; font-size:1.45rem; font-weight:800; letter-spacing:-0.5px; white-space:nowrap; }
+.kpi-vis { flex-shrink:0; line-height:0; }
+.kpi-sub { font-size:.72rem; font-weight:600; margin-top:4px; color:#6b7280; }
 /* Profit calendar (HTML grid) */
 .cal { background:#fff; border:1px solid #eceef1; border-radius:14px; padding:14px 16px;
   box-shadow:0 1px 3px rgba(16,24,40,.05); }
@@ -495,14 +497,17 @@ def _splitbar_svg(win, loss, w=92, h=9):
 
 
 def kpi_cards_html(cards) -> str:
-    """cards: list of {label, val, sub?, sub_color?, visual?(svg)}."""
+    """cards: list of {label, val, sub?, sub_color?, visual?(svg)}.
+    Layout: label on top, then value + mini-visual side by side (so the spark/
+    gauge/split-bar never overlaps the label), optional sub line below."""
     out = []
     for c in cards:
-        vis = f'<div class="kpi-spark">{c["visual"]}</div>' if c.get("visual") else ""
+        vis = f'<div class="kpi-vis">{c["visual"]}</div>' if c.get("visual") else ""
         sub = (f'<div class="kpi-sub" style="color:{c.get("sub_color", "#6b7280")}">'
                f'{c["sub"]}</div>') if c.get("sub") else ""
-        out.append(f'<div class="kpi-card">{vis}<div class="kpi-label">{c["label"]}</div>'
-                   f'<div class="kpi-val">{c["val"]}</div>{sub}</div>')
+        out.append(f'<div class="kpi-card"><div class="kpi-label">{c["label"]}</div>'
+                   f'<div class="kpi-mid"><div class="kpi-val">{c["val"]}</div>{vis}</div>'
+                   f'{sub}</div>')
     return f'<div class="kpi-row">{"".join(out)}</div>'
 
 
