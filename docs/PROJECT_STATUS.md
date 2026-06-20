@@ -1,7 +1,38 @@
 # TOAI — Project Status & Handoff
 
-> **קרא אותי ראשון בכל chat חדש.** עדכון אחרון: **2026-06-19** (RESET נקי — ראה §הצעד הראשון).
+> **קרא אותי ראשון בכל chat חדש.** עדכון אחרון: **2026-06-20** (📈 Analytics dashboard).
 > כתוב כ-handoff מלא — הצ'אט הקודם הגיע לגבול אורך.
+
+---
+
+## 🆕 סשן 2026-06-20 — נבנה דאשבורד אנליטיקה מקומי (📈 TOAI_Analytics)
+
+**הכל נדחף** ל-`claude/magical-dirac-1yd0d4` (HEAD ≈ `731e3f6`, 30 קומיטים).
+
+### מה נבנה
+**`toai/dashboard.py`** — דאשבורד **Streamlit** מקומי, **ML-aware**, "TradesViz/Edgewonk אצלנו".
+קורא את אותם קבצים (`executions.csv`/`journal.csv`/`bar_data.csv`) — שום דבר לא יוצא מהמכונה.
+מופעל ע"י **`TOAI_Analytics.bat`** או כפתור **📈 Analytics** ב-Control Panel (פורט קבוע **8765**).
+דורש `pip install -r requirements.txt` (נוספו `streamlit`, `plotly`, `anthropic`).
+
+**הטאבים (ניווט אנכי שמאלי, מצב-אפליקציה/PWA):**
+- **🏠 Home** — מבט-אחד בסגנון Edgewonk (תֵמה בהירה): לוח-שנה-רווח HTML (אריחי-יום ירוק/אדום + עמודת Total),
+  פאנל **Evaluation**, ושורת **KPI** (Net P&L sparkline · Win-rate gauge · Avg/trade split-bar · PF · **ML edge/trade**).
+- **⚙️ Control** — מחליף את ה-Tkinter Control Panel: סטטוס-חי (score/gate/health, auto-refresh 2ש'), סף,
+  בחירת/הפעלת/portfolio/מחיקת וריאנט, Train export, Backup, Clear-cache, Start/End-day, **Start/Stop watch** (subprocess).
+- **🎯 ML edge** (תוחלת לפי דלי + ALLOW מול all) · **🔬 Breakdowns** · **📅 Calendar** · **🥅 Goals** ·
+  **🧪 Simulator** (what-if stop/target לפי MAE/MFE) · **🕯 Trade explorer** (נרות/HA/Renko + replay) ·
+  **🤖 AI Coach** (Claude `claude-opus-4-8`, off-path: debrief יומי/ביקורת-עסקה/צ'אט — דורש `ANTHROPIC_API_KEY`).
+
+### דברים שכדאי לדעת לצ'אט הבא
+- **אומת ב-Streamlit AppTest** (`from streamlit.testing.v1 import AppTest`) — דרך מצוינת לבדוק את הדאשבורד
+  ללא דפדפן (תופס exceptions בכל הטאבים). הרץ עם `TOAI_DATA_DIR='C:\LIOR_ML'`.
+- **פילטרים בתחתית הדף** — הערכים נקראים מ-`st.session_state` למעלה (keys: `f_inst/f_source/f_thr/f_unit/f_gday/...`),
+  הוידג'טים מרונדרים בתחתית. ניווט = `st.radio(key="toainav")` + `if/elif view==…` (לא `st.tabs`).
+- **CSS** — מוזרק כ-`THEME_CSS` (תמה בהירה, Manrope) + תבנית-Plotly אחת. הניווט-האנכי וה-full-bleed של
+  שורת-ה-KPI (`.st-key-kpiwrap`/`.st-key-botbar`, `100vw`) מסתמכים על מבנה-DOM של Streamlit — שביר, לכוונן בזהירות.
+- **OHLC נוסף ל-`TOAIExporterGaugeTick`** (לנרות) — צריך קימפול מחדש; עד אז גרף-העסקה נופל לקו EMA20.
+- **Edgewonk** — תוקן (NinjaTrader importer, תאריכים אמיתיים) אבל **ליאור החליט שלא צריך** (יש דאשבורד). הכפתור הוסר מה-UI.
 
 ---
 
