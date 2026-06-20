@@ -532,6 +532,54 @@ def calendar_html(mdf, unit_label="$") -> str:
 
 
 # --------------------------------------------------------------------------- #
+#  Fixed-size 1060x512 "journal" — a self-contained HTML card (its own <style>,
+#  since it renders in an isolated iframe) you can embed or save and open
+#  standalone at exactly that size.
+# --------------------------------------------------------------------------- #
+JOURNAL_CSS = """
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&display=swap');
+*{box-sizing:border-box;margin:0;padding:0;font-family:'Manrope',-apple-system,system-ui,sans-serif;}
+body{background:#f6f8fa;}
+.journal{width:1060px;height:512px;background:#f6f8fa;padding:10px;display:flex;flex-direction:column;gap:10px;}
+.kpi-row{display:flex;gap:10px;}
+.kpi-card{flex:1;background:#fff;border:1px solid #eceef1;border-radius:12px;padding:10px 12px;position:relative;min-height:76px;box-shadow:0 1px 2px rgba(16,24,40,.06);}
+.kpi-label{color:#6b7280;font-size:.72rem;font-weight:600;}
+.kpi-val{color:#111827;font-size:1.35rem;font-weight:800;margin-top:2px;letter-spacing:-.5px;}
+.kpi-sub{font-size:.64rem;font-weight:600;margin-top:2px;color:#6b7280;}
+.kpi-spark{position:absolute;top:10px;right:12px;}
+.jlower{display:flex;gap:10px;flex:1;min-height:0;}
+.cal{flex:1.7;background:#fff;border:1px solid #eceef1;border-radius:12px;padding:9px 12px;box-shadow:0 1px 2px rgba(16,24,40,.05);display:flex;flex-direction:column;}
+.cal-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;}
+.cal-title{font-weight:700;font-size:.92rem;color:#111827;}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr) .8fr;grid-auto-rows:1fr;gap:4px;flex:1;}
+.cal-dow{font-size:.6rem;color:#9aa3ad;font-weight:600;text-align:center;}
+.cal-cell{position:relative;border-radius:8px;background:#f3f5f8;border:1px solid #eef0f3;padding:2px 6px;}
+.cal-cell.empty{background:transparent;border:none;}
+.cal-cell.win{background:#e8f6ee;border-color:#cdebd8;}
+.cal-cell.loss{background:#fdeaea;border-color:#f6cccc;}
+.cal-day{position:absolute;top:2px;right:5px;font-size:.58rem;color:#9aa3ad;font-weight:600;}
+.cal-pnl{font-size:.68rem;font-weight:800;margin-top:11px;}
+.cal-pnl.win{color:#16a34a;}.cal-pnl.loss{color:#dc2626;}
+.cal-n{font-size:.52rem;color:#6b7280;}
+.cal-total{background:#fafbfc;border:1px dashed #e5e7eb;border-radius:8px;display:flex;align-items:center;justify-content:center;}
+.eval{flex:1;background:#fff;border:1px solid #eceef1;border-radius:12px;padding:2px 14px;box-shadow:0 1px 2px rgba(16,24,40,.05);}
+.evrow{display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid #f1f3f5;font-size:.76rem;}
+.evrow:last-child{border-bottom:none;}
+.evrow span{color:#6b7280;}.evrow b{color:#111827;font-weight:700;}
+"""
+
+
+def journal_doc(cards_html, cal_html, eval_rows) -> str:
+    evrows = "".join(f"<div class='evrow'><span>{a}</span><b>{b}</b></div>"
+                     for a, b in eval_rows)
+    return (f"<!doctype html><html><head><meta charset='utf-8'>"
+            f"<style>{JOURNAL_CSS}</style></head><body>"
+            f"<div class='journal'>{cards_html}"
+            f"<div class='jlower'>{cal_html}<div class='eval'>{evrows}</div></div>"
+            f"</div></body></html>")
+
+
+# --------------------------------------------------------------------------- #
 #  Streamlit UI (imports the heavy libs lazily, so the helpers above stay light)
 # --------------------------------------------------------------------------- #
 def main():
@@ -811,6 +859,19 @@ def main():
                 html = "".join(f"<div class='evrow'><span>{a}</span><b>{b}</b></div>"
                                for a, b in rows)
                 st.markdown(f"<div class='evpanel'>{html}</div>", unsafe_allow_html=True)
+
+            st.divider()
+            with st.expander("📋 Fixed 1060×512 journal (embed / save)"):
+                import streamlit.components.v1 as components
+                doc = journal_doc(kpi_cards_html(cards),
+                                  calendar_html(mdf, usym.strip() or "$"), rows)
+                components.html(doc, width=1060, height=512, scrolling=False)
+                if st.button("💾 Save journal HTML"):
+                    dest = config.DATA_ROOT / "_journal"
+                    dest.mkdir(exist_ok=True)
+                    p = dest / f"{inst}_journal.html"
+                    p.write_text(doc, encoding="utf-8")
+                    st.success(f"Saved → {p}  (open in a browser; it is exactly 1060×512)")
 
     # ---- TAB 1: ML edge (works for both sources via the scorecard machinery) ----
     with tab_edge:
