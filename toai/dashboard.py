@@ -381,6 +381,24 @@ h2, h3 { font-weight: 700 !important; letter-spacing: -0.3px; color: #1f2937; }
 [data-baseweb="tab"] { font-weight: 600; padding: 8px 14px; color: #6b7280; }
 [data-baseweb="tab"][aria-selected="true"] { color: #16a34a !important; }
 [data-baseweb="tab-highlight"] { background-color: #16a34a !important; height: 3px; }
+/* Vertical left-rail navigation (Edgewonk-style icons down the left side) */
+[data-testid="stTabs"] { display: flex; gap: 18px; align-items: flex-start; }
+[data-testid="stTabs"] > [data-baseweb="tab-list"] {
+  flex: 0 0 174px; flex-direction: column; align-items: stretch; gap: 3px;
+  border-bottom: none; border-right: 1px solid #e6e8eb; padding-right: 8px;
+  position: sticky; top: 6px;
+}
+[data-testid="stTabs"] > [data-baseweb="tab-border"] { display: none; }
+[data-testid="stTabs"] > div:last-child { flex: 1 1 auto; min-width: 0; }
+[data-testid="stTabs"] [data-baseweb="tab"] {
+  justify-content: flex-start; width: 100%; margin: 0; padding: 9px 12px;
+  border-radius: 8px; border-left: 3px solid transparent; font-weight: 600;
+}
+[data-testid="stTabs"] [data-baseweb="tab"]:hover { background: #f3f5f8; }
+[data-testid="stTabs"] [data-baseweb="tab"][aria-selected="true"] {
+  background: #ecfdf3; border-left-color: #16a34a; color: #15803d !important;
+}
+[data-testid="stTabs"] [data-baseweb="tab-highlight"] { display: none !important; }
 /* Chart + table panels as white cards */
 [data-testid="stPlotlyChart"], [data-testid="stDataFrame"] {
   background: #ffffff; border: 1px solid #eceef1; border-radius: 14px;
@@ -859,17 +877,15 @@ def main():
                 st.markdown(f"<div class='evpanel'>{html}</div>", unsafe_allow_html=True)
 
             st.divider()
-            with st.expander("📋 Fixed 1060×512 journal (embed / save)"):
-                import streamlit.components.v1 as components
+            jc = st.columns([1, 2])
+            if jc[0].button("💾 Save as 1060×512 journal HTML", width='stretch'):
                 doc = journal_doc(kpi_cards_html(cards),
                                   calendar_html(mdf, usym.strip() or "$"), rows)
-                components.html(doc, width=1060, height=512, scrolling=False)
-                if st.button("💾 Save journal HTML"):
-                    dest = config.DATA_ROOT / "_journal"
-                    dest.mkdir(exist_ok=True)
-                    p = dest / f"{inst}_journal.html"
-                    p.write_text(doc, encoding="utf-8")
-                    st.success(f"Saved → {p}  (open in a browser; it is exactly 1060×512)")
+                dest = config.DATA_ROOT / "_journal"
+                dest.mkdir(exist_ok=True)
+                p = dest / f"{inst}_journal.html"
+                p.write_text(doc, encoding="utf-8")
+                jc[1].success(f"Saved → {p}")
 
     # ---- TAB 1: ML edge (works for both sources via the scorecard machinery) ----
     with tab_edge:
