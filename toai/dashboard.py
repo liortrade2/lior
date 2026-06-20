@@ -367,8 +367,11 @@ html, body, [class*="css"], .stMarkdown, button, input, select, textarea, .stSli
 section[data-testid="stSidebar"] { display: none; }
 /* KPI strip + bottom filters sit BELOW the nav rail, so reclaim the left
    gutter: pull them left to the window edge and keep them flush right. */
-.st-key-kpiwrap, .st-key-botbar { margin-left: -184px !important; width: calc(100vw - 24px) !important; }
-.st-key-kpiwrap [data-testid="stHorizontalBlock"], .st-key-botbar [data-testid="stHorizontalBlock"] { width: 100% !important; }
+.st-key-kpiwrap, .st-key-botbar { overflow: visible !important; }
+.st-key-kpiwrap [data-testid="stHorizontalBlock"],
+.st-key-botbar [data-testid="stExpander"] {
+  width: calc(100vw - 24px) !important; max-width: none !important; margin-left: -184px !important;
+}
 [data-testid="stExpander"] summary { font-weight: 700; }
 h1 { font-weight: 800 !important; letter-spacing: -0.6px; color: #111827; font-size: 1.7rem; }
 h2, h3 { font-weight: 700 !important; letter-spacing: -0.3px; color: #1f2937; font-size: 1.15rem !important; }
