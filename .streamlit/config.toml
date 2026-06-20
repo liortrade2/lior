@@ -1,0 +1,12 @@
+# TOAI Analytics — keep the local dashboard clean and private.
+# Streamlit reads this because the app is launched with C:\lior as the working
+# directory (both TOAI_Analytics.bat and the panel's 📈 button).
+
+[browser]
+gatherUsageStats = false      # no telemetry / usage stats sent anywhere
+
+[server]
+port = 8765                   # one fixed port (matches the panel's 📈 button)
+
+[client]
+toolbarMode = "minimal"       # hide the "Deploy" button and the developer menu
