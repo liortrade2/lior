@@ -98,8 +98,12 @@ bar_scores כולם נמחקו. ה-`MES` עכשיו **לוח נקי** (variants.
   **Phase B (2026-06-20):** טאב **🧪 Simulator** — what-if stop/target על העסקאות האמיתיות
   לפי MAE/MFE שכבר נשמרים (בלי צורך ב-bar history): סליידרים לסטופ/טרגט, מי-קודם tie-break,
   והשוואת net/win/PF + עקומת-הון מול בפועל. ועוד **replay slider** בגרף-העסקה (חשיפת ברים בהדרגה).
-  **הבא: Phase C (AI Coach עם Claude API).**
-  אומת חי עם Streamlit AppTest (כל 6 הטאבים + 4 סוגי-הגרף + הסימולטור + 2 המקורות, אין exceptions). **דורש**: `pip install -r requirements.txt`
+  **Phase C (2026-06-20):** טאב **🤖 AI Coach** — Claude off-path (`claude-opus-4-8`, adaptive
+  thinking) שקורא את ה-fills האמיתיים **יחד עם ה-ML score וה-verdict** (`toai/ai_coach.py`):
+  **Daily debrief**, **Review a trade**, ו-**chat על היומן**. זה ה-off-path Claude שתכננו (לא ב-hot-path).
+  **דורש `ANTHROPIC_API_KEY`** בסביבה (בלעדיו הטאב מציג הנחיה, לא קורס). אומת: ה-SDK בנה+שלח את הבקשה
+  (נעצר ב-auth עם מפתח-דמה — צורת-הבקשה תקינה). שלוש הפאזות A→B→C **הושלמו**.
+  אומת חי עם Streamlit AppTest (כל 7 הטאבים + 4 סוגי-הגרף + הסימולטור + 2 המקורות, אין exceptions). **דורש**: `pip install -r requirements.txt` (נוסף `anthropic`)
   (נוספו streamlit+plotly). **נרות אמיתיים דורשים OHLC** — נוסף ל-`TOAIExporterGaugeTick` (לקמפל);
   עד אז fallback לקו EMA20.
 

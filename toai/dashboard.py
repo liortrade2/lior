@@ -23,12 +23,12 @@ import pandas as pd
 # Work both as a package module (`python -m toai.dashboard`) and as a bare script
 # (`streamlit run toai/dashboard.py`), where there is no parent package.
 try:
-    from . import config, journal, scorecard
+    from . import ai_coach, config, journal, scorecard
 except ImportError:
     import pathlib
     import sys
     sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
-    from toai import config, journal, scorecard
+    from toai import ai_coach, config, journal, scorecard
 
 OHLC = ["Open", "High", "Low", "Close"]
 
@@ -372,9 +372,9 @@ def main():
     else:
         st.info("No realized fills yet — showing the walk-forward view where available.")
 
-    tab_edge, tab_break, tab_cal, tab_goals, tab_sim, tab_explore = st.tabs(
+    tab_edge, tab_break, tab_cal, tab_goals, tab_sim, tab_explore, tab_ai = st.tabs(
         ["🎯 ML edge", "🔬 Breakdowns", "📅 Calendar", "🥅 Goals",
-         "🧪 Simulator", "🕯 Trade explorer"])
+         "🧪 Simulator", "🕯 Trade explorer", "🤖 AI Coach"])
 
     # ---- TAB 1: ML edge (works for both sources via the scorecard machinery) ----
     with tab_edge:
@@ -689,6 +689,53 @@ def main():
                           f"{sc_txt} · {r.get('Verdict', '')}",
                     height=480, xaxis_rangeslider_visible=False, margin=dict(t=50))
                 st.plotly_chart(fig, width='stretch')
+
+    # ---- TAB 7: AI Coach (off-path Claude, ML-aware) ----
+    with tab_ai:
+        st.caption("Off-path Claude (claude-opus-4-8) reading your real fills WITH the "
+                   "ML score & verdict — the analysis no external journal can do. "
+                   "Uses the Anthropic API, so usage costs apply.")
+        if not ai_coach.available():
+            st.info("Set **ANTHROPIC_API_KEY** in the environment to enable the AI "
+                    "Coach, then relaunch.\n\n```\nsetx ANTHROPIC_API_KEY sk-ant-...\n```")
+        elif ex.empty:
+            st.info("No realized fills yet for the coach to analyse.")
+        else:
+            c1, c2 = st.columns(2)
+            if c1.button("🗓 Daily debrief", width='stretch'):
+                with st.spinner("Coaching…"):
+                    st.session_state["ai_daily"] = ai_coach.daily_summary(ex, inst)
+            if st.session_state.get("ai_daily"):
+                st.markdown(st.session_state["ai_daily"])
+
+            st.divider()
+            tlabels = [f"{r.EntryTime:%m-%d %H:%M} · {r.Direction} · "
+                       f"${pd.to_numeric(pd.Series([r.Profit]), errors='coerce')[0]:+.2f}"
+                       for _, r in ex.iterrows()]
+            ti = c2.selectbox("Review a trade", range(len(ex)),
+                              format_func=lambda i: tlabels[i])
+            if c2.button("🔍 Review this trade", width='stretch'):
+                with st.spinner("Reviewing…"):
+                    st.session_state["ai_review"] = ai_coach.review_trade(ex.iloc[ti], inst)
+            if st.session_state.get("ai_review"):
+                st.markdown(st.session_state["ai_review"])
+
+            st.divider()
+            st.caption("💬 Ask about your journal")
+            for m in st.session_state.get("ai_chat", []):
+                with st.chat_message(m["role"]):
+                    st.markdown(m["content"])
+            q = st.chat_input("e.g. which hour should I stop trading?")
+            if q:
+                hist = st.session_state.get("ai_chat", [])
+                with st.chat_message("user"):
+                    st.markdown(q)
+                with st.chat_message("assistant"):
+                    with st.spinner("Thinking…"):
+                        a = ai_coach.chat(q, ex, inst, hist)
+                    st.markdown(a)
+                st.session_state["ai_chat"] = hist + [
+                    {"role": "user", "content": q}, {"role": "assistant", "content": a}]
 
 
 def _calendar_grid(mdf):
