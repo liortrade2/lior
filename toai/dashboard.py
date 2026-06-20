@@ -407,8 +407,8 @@ hr { margin: 0.5rem 0; border-color: #e5e7eb; }
 /* Evaluation panel — Edgewonk-style stat rows */
 .evpanel { background: #ffffff; border: 1px solid #eceef1; border-radius: 14px;
   padding: 4px 16px; box-shadow: 0 1px 3px rgba(16,24,40,0.05); }
-.evrow { display: flex; justify-content: space-between; align-items: center;
-  padding: 6px 0; border-bottom: 1px solid #f1f3f5; font-size: 0.8rem; }
+.evrow { display: flex; justify-content: space-between; align-items: center; gap: 8px;
+  padding: 6px 0; border-bottom: 1px solid #f1f3f5; font-size: 0.78rem; white-space: nowrap; }
 .evrow:last-child { border-bottom: none; }
 .evrow span { color: #6b7280; } .evrow b { color: #111827; font-weight: 700; }
 /* Custom KPI cards with mini visuals */
@@ -426,7 +426,7 @@ hr { margin: 0.5rem 0; border-color: #e5e7eb; }
 .cal-title { font-weight:700; font-size:1.05rem; color:#111827; }
 .cal-grid { display:grid; grid-template-columns:repeat(7,1fr) 0.7fr; gap:6px; }
 .cal-dow { font-size:.68rem; color:#9aa3ad; font-weight:600; text-align:center; }
-.cal-cell { position:relative; aspect-ratio:1/1; border-radius:10px; background:#f3f5f8;
+.cal-cell { position:relative; min-height:52px; border-radius:10px; background:#f3f5f8;
   border:1px solid #eef0f3; padding:5px 7px; }
 .cal-cell.empty { background:transparent; border:none; }
 .cal-cell.win { background:#e8f6ee; border-color:#cdebd8; }
@@ -840,8 +840,8 @@ def main():
                  "val": f"{u(ml_edge):+.2f}{usym}" if ml_edge is not None else "—",
                  "sub": "ALLOW vs all", "sub_color": GREEN},
             ]
-            # Calendar (wide, left) + Evaluation (narrow, pushed to the right).
-            left, right = st.columns([4, 1.15], gap="large")
+            # Calendar (wide, left) + Evaluation (right, wide enough to not wrap).
+            left, right = st.columns([3.3, 1.5], gap="medium")
             with left:
                 st.subheader("Profit calendar")
                 dp = daily_pnl(ex)
