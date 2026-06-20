@@ -91,7 +91,11 @@ bar_scores כולם נמחקו. ה-`MES` עכשיו **לוח נקי** (variants.
   (תוחלת לפי דלי-ציון + עקומת ALLOW מול trade-everything, סף אינטראקטיבי, ל-Realized **או**
   Walk-forward), **Breakdowns** (P&L לפי שעה/variant, MAE מול P&L צבוע ב-ML score, R-multiple),
   **Trade explorer** (טבלה + עסקה-על-גרף נרות עם entry/exit/SL/TP/MAE/MFE וה-ML score).
-  אומת חי עם Streamlit AppTest (אין exceptions בשני המקורות). **דורש**: `pip install -r requirements.txt`
+  **Phase A (2026-06-20, מתוך roadmap "TradesViz אצלנו" A→B→C):** נוספו בורר-יחידות ($/points/ticks),
+  טאב **📅 Calendar** (heatmap חודשי + seasonality יום-בשבוע/חודש), טאב **🥅 Goals** (יעד יומי/שבועי/חודשי),
+  **exit efficiency** (% מה-MFE שנתפס, צבוע ML), ובורר **סוגי-גרף** (Candlestick/Heikin-Ashi/Renko/Line)
+  + אינדיקטורים (EMA9/20/50) על גרף-העסקה. **הבא: Phase B (סימולטורים) ו-C (AI Coach עם Claude).**
+  אומת חי עם Streamlit AppTest (כל 5 הטאבים + 4 סוגי-הגרף + 2 המקורות, אין exceptions). **דורש**: `pip install -r requirements.txt`
   (נוספו streamlit+plotly). **נרות אמיתיים דורשים OHLC** — נוסף ל-`TOAIExporterGaugeTick` (לקמפל);
   עד אז fallback לקו EMA20.
 

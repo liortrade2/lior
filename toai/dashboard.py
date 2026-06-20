@@ -165,6 +165,113 @@ def instruments() -> list[str]:
 
 
 # --------------------------------------------------------------------------- #
+#  Phase A: units, chart transforms, exit analysis, seasonality, calendar
+# --------------------------------------------------------------------------- #
+# $ per 1.0 price-point and tick size per instrument (CME micros + minis).
+CONTRACTS = {
+    "MES": (5.0, 0.25), "ES": (50.0, 0.25), "MNQ": (2.0, 0.25), "NQ": (20.0, 0.25),
+    "MYM": (0.5, 1.0), "YM": (5.0, 1.0), "M2K": (5.0, 0.1), "RTY": (50.0, 0.1),
+    "MCL": (100.0, 0.01), "CL": (1000.0, 0.01), "MGC": (10.0, 0.1), "GC": (100.0, 0.1),
+    "MBT": (0.1, 1.0),
+}
+
+
+def contract(instrument) -> tuple[float, float]:
+    """(dollars per point, tick size) — defaults to MES-like if unknown."""
+    return CONTRACTS.get(str(instrument).upper(), (5.0, 0.25))
+
+
+def to_units(dollars, instrument, unit: str):
+    """Convert a $ amount to the chosen display unit ($, points, ticks)."""
+    if unit == "$":
+        return dollars
+    pv, tick = contract(instrument)
+    pts = dollars / pv if pv else dollars
+    return pts if unit == "points" else pts / tick if tick else pts
+
+
+def unit_symbol(unit: str) -> str:
+    return {"$": "$", "points": " pts", "ticks": " ticks"}.get(unit, "")
+
+
+def heikin_ashi(df: pd.DataFrame) -> pd.DataFrame:
+    """Heikin-Ashi OHLC from real OHLC — smooths noise to show trend/reversal."""
+    o, h, l, c = df["Open"].to_numpy(), df["High"].to_numpy(), df["Low"].to_numpy(), df["Close"].to_numpy()
+    ha_c = (o + h + l + c) / 4
+    ha_o = ha_c.copy()
+    ha_o[0] = (o[0] + c[0]) / 2
+    for i in range(1, len(ha_o)):
+        ha_o[i] = (ha_o[i - 1] + ha_c[i - 1]) / 2
+    out = pd.DataFrame({"DateTime": df["DateTime"].to_numpy(), "Open": ha_o, "Close": ha_c})
+    out["High"] = [max(hh, oo, cc) for hh, oo, cc in zip(h, ha_o, ha_c)]
+    out["Low"] = [min(ll, oo, cc) for ll, oo, cc in zip(l, ha_o, ha_c)]
+    return out
+
+
+def renko_bricks(df: pd.DataFrame, brick: float) -> pd.DataFrame:
+    """Close-based Renko bricks (size `brick`). Returns Open/Close/Up per brick,
+    plotted against the time the brick formed — strips time, shows pure movement."""
+    if brick <= 0 or df.empty:
+        return pd.DataFrame()
+    closes, times = df["Close"].to_numpy(), df["DateTime"].to_numpy()
+    base = closes[0]
+    rows = []
+    for c, t in zip(closes, times):
+        while c - base >= brick:
+            rows.append((t, base, base + brick, True)); base += brick
+        while base - c >= brick:
+            rows.append((t, base, base - brick, False)); base -= brick
+    return pd.DataFrame(rows, columns=["DateTime", "Open", "Close", "Up"])
+
+
+def exit_efficiency(ex: pd.DataFrame, instrument) -> pd.DataFrame:
+    """How much of the available move each trade captured: realized points vs the
+    MFE (best the trade ever showed). 100% = nailed the high; low = gave it back.
+    Uses MFE/MAE already in executions, so it needs no bar history."""
+    pv, _ = contract(instrument)
+    rows = []
+    for _, r in ex.iterrows():
+        try:
+            realized_pts = float(r["Profit"]) / pv
+            mfe_pts = float(r["MFE"])
+        except (TypeError, ValueError, KeyError):
+            continue
+        eff = (realized_pts / mfe_pts * 100) if mfe_pts > 0 else None
+        rows.append({"EntryTime": r["EntryTime"], "RealizedPts": realized_pts,
+                     "MFE": mfe_pts, "MAE": _safe_float(r.get("MAE")),
+                     "Efficiency": eff, "Score": r.get("Score")})
+    return pd.DataFrame(rows)
+
+
+def _safe_float(x):
+    try:
+        return float(x)
+    except (TypeError, ValueError):
+        return None
+
+
+def seasonality(ex: pd.DataFrame):
+    """P&L grouped by day-of-week, hour and month — the calendar patterns."""
+    e = ex.copy()
+    e["Profit"] = pd.to_numeric(e["Profit"], errors="coerce")
+    e = e.dropna(subset=["Profit"])
+    if e.empty:
+        return {}
+    dow = e.groupby(e["EntryTime"].dt.dayofweek)["Profit"].agg(["sum", "count"])
+    dow.index = [["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][i] for i in dow.index]
+    month = e.groupby(e["EntryTime"].dt.to_period("M").astype(str))["Profit"].agg(["sum", "count"])
+    return {"dow": dow.reset_index(names="k"), "month": month.reset_index(names="k")}
+
+
+def daily_pnl(ex: pd.DataFrame) -> pd.DataFrame:
+    """Net P&L per calendar day (for the calendar heatmap and goals)."""
+    e = ex.copy()
+    e["Profit"] = pd.to_numeric(e["Profit"], errors="coerce")
+    g = e.dropna(subset=["Profit"]).groupby("Day")["Profit"].agg(["sum", "count"])
+    return g.reset_index()
+
+
+# --------------------------------------------------------------------------- #
 #  Streamlit UI (imports the heavy libs lazily, so the helpers above stay light)
 # --------------------------------------------------------------------------- #
 def main():
@@ -199,25 +306,35 @@ def main():
         threshold = st.slider("ML gate threshold", 0, 100, int(live_thr),
                               help=f"Live threshold is {live_thr:g}. Drag to explore "
                                    "what a different gate would do.")
+        unit = st.radio("Display unit", ["$", "points", "ticks"], horizontal=True)
+        st.divider()
+        st.caption("🎯 Goals (net P&L targets)")
+        goal_day = st.number_input("Daily goal ($)", value=200, step=50)
+        goal_week = st.number_input("Weekly goal ($)", value=800, step=100)
+        goal_month = st.number_input("Monthly goal ($)", value=3000, step=250)
 
     scored, _thr, oos, dfrom, dto = scored_for(inst, source)
     ex = load_realized(inst)
+
+    def u(dollars):
+        return to_units(dollars, inst, unit)
+    usym = unit_symbol(unit)
 
     # ---- top KPI row (realized) ----
     k = kpis(ex)
     if k:
         cols = st.columns(5)
         cols[0].metric("Trades", k["trades"])
-        cols[1].metric("Net P&L", f"${k['net']:,.2f}")
+        cols[1].metric("Net P&L", f"{u(k['net']):,.2f}{usym}")
         cols[2].metric("Win rate", f"{k['win_rate']:.0f}%")
-        cols[3].metric("Expectancy", f"${k['expectancy']:,.2f}/trade")
+        cols[3].metric("Expectancy", f"{u(k['expectancy']):,.2f}{usym}/trade")
         cols[4].metric("Profit factor",
                        f"{k['profit_factor']:.2f}" if k["profit_factor"] else "—")
     else:
         st.info("No realized fills yet — showing the walk-forward view where available.")
 
-    tab_edge, tab_break, tab_explore = st.tabs(
-        ["🎯 ML edge", "🔬 Breakdowns", "🕯 Trade explorer"])
+    tab_edge, tab_break, tab_cal, tab_goals, tab_explore = st.tabs(
+        ["🎯 ML edge", "🔬 Breakdowns", "📅 Calendar", "🥅 Goals", "🕯 Trade explorer"])
 
     # ---- TAB 1: ML edge (works for both sources via the scorecard machinery) ----
     with tab_edge:
@@ -330,7 +447,88 @@ def main():
                                       xaxis_title="R", margin=dict(t=40))
                     st.plotly_chart(fig, width='stretch')
 
-    # ---- TAB 3: trade explorer (per-trade candles + markers) ----
+            # Exit efficiency — how much of each trade's best move it captured,
+            # coloured by ML score. Low bars = giving profit back before exit.
+            eff = exit_efficiency(ex, inst)
+            eff = eff[eff["Efficiency"].notna()] if not eff.empty else eff
+            if not eff.empty:
+                col = pd.to_numeric(eff["Score"], errors="coerce")
+                fig = go.Figure(go.Bar(
+                    x=[f"{t:%m-%d %H:%M}" for t in eff["EntryTime"]],
+                    y=eff["Efficiency"],
+                    marker=dict(color=col, colorscale="Viridis",
+                                showscale=bool(col.notna().any()),
+                                colorbar=dict(title="ML")),
+                    text=[f"{v:.0f}%" for v in eff["Efficiency"]], textposition="outside"))
+                fig.update_layout(
+                    title="Exit efficiency — captured % of the best move (MFE)",
+                    yaxis_title="% of MFE captured", height=320, margin=dict(t=40))
+                fig.add_hline(y=0, line_color=MUTED)
+                st.plotly_chart(fig, width='stretch')
+                st.caption(f"Median capture: {eff['Efficiency'].median():.0f}% of the "
+                           "best move. If ML-high trades capture more, the score is "
+                           "also picking cleaner exits.")
+
+    # ---- TAB 3: Calendar & seasonality ----
+    with tab_cal:
+        if ex.empty:
+            st.info("No realized fills yet for the calendar.")
+        else:
+            dp = daily_pnl(ex)
+            dp["Day"] = pd.to_datetime(dp["Day"])
+            dp["uPnL"] = dp["sum"].apply(u)
+            # Month calendar heatmap (week rows × weekday cols).
+            months = sorted(dp["Day"].dt.to_period("M").astype(str).unique())
+            msel = st.selectbox("Month", months, index=len(months) - 1)
+            mdf = dp[dp["Day"].dt.to_period("M").astype(str) == msel]
+            z, txt = _calendar_grid(mdf)
+            fig = go.Figure(go.Heatmap(
+                z=z, x=["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+                text=txt, texttemplate="%{text}", colorscale="RdYlGn", zmid=0,
+                showscale=True, hoverinfo="text"))
+            fig.update_layout(title=f"Daily net P&L — {msel} ({usym.strip() or '$'})",
+                              height=300, margin=dict(t=40), yaxis=dict(autorange="reversed"))
+            st.plotly_chart(fig, width='stretch')
+
+            s = seasonality(ex)
+            if s:
+                a, bcol = st.columns(2)
+                for cc, key, title in ((a, "dow", "P&L by weekday"),
+                                       (bcol, "month", "P&L by month")):
+                    g = s[key]
+                    fig = go.Figure(go.Bar(
+                        x=g["k"], y=g["sum"].apply(u),
+                        marker_color=[GREEN if v >= 0 else RED for v in g["sum"]],
+                        text=g["count"], textposition="outside"))
+                    fig.update_layout(title=title, height=300, margin=dict(t=40),
+                                      yaxis_title=usym.strip() or "$")
+                    cc.plotly_chart(fig, width='stretch')
+
+    # ---- TAB 4: Goals ----
+    with tab_goals:
+        if ex.empty:
+            st.info("No realized fills yet to measure against goals.")
+        else:
+            e = ex.copy()
+            e["Profit"] = pd.to_numeric(e["Profit"], errors="coerce")
+            e["EntryTime"] = pd.to_datetime(e["EntryTime"])
+            today = e["EntryTime"].dt.date.max()
+            iso = pd.Timestamp(today).isocalendar()
+            day_pnl = e[e["EntryTime"].dt.date == today]["Profit"].sum()
+            week_pnl = e[e["EntryTime"].dt.isocalendar().week.eq(iso.week) &
+                         e["EntryTime"].dt.isocalendar().year.eq(iso.year)]["Profit"].sum()
+            month_pnl = e[e["EntryTime"].dt.to_period("M") ==
+                          pd.Period(today, "M")]["Profit"].sum()
+            st.caption(f"Latest trading day in data: {today}")
+            for label, pnl, goal in (("Today", day_pnl, goal_day),
+                                     ("This week", week_pnl, goal_week),
+                                     ("This month", month_pnl, goal_month)):
+                pct = (pnl / goal * 100) if goal else 0
+                st.metric(f"{label} — {u(pnl):,.2f}{usym} / {u(goal):,.0f}{usym} goal",
+                          f"{pct:.0f}%")
+                st.progress(min(1.0, max(0.0, pnl / goal if goal else 0)))
+
+    # ---- TAB 5: trade explorer (per-trade candles + markers) ----
     with tab_explore:
         if ex.empty:
             st.info("No realized fills to explore yet.")
@@ -350,19 +548,50 @@ def main():
                 st.info("No bar_data to chart.")
             else:
                 w = trade_bars(bars, r["EntryTime"], r["ExitTime"])
+                ctypes = (["Candlestick", "Heikin-Ashi", "Renko", "Line"]
+                          if has_ohlc else ["Line"])
+                copts = st.columns([2, 3])
+                ctype = copts[0].selectbox("Chart type", ctypes)
+                ema_cols = [c for c in ("EMA9", "EMA20", "EMA50") if c in w.columns]
+                inds = copts[1].multiselect("Indicators", ema_cols, default=ema_cols[:2])
+
                 fig = go.Figure()
-                if has_ohlc:
+                if ctype == "Candlestick":
                     fig.add_trace(go.Candlestick(
                         x=w["DateTime"], open=w["Open"], high=w["High"],
                         low=w["Low"], close=w["Close"], name="price"))
-                else:
-                    fig.add_trace(go.Scatter(x=w["DateTime"], y=w["EMA20"],
-                                             name="EMA20 (no OHLC yet)",
+                elif ctype == "Heikin-Ashi":
+                    ha = heikin_ashi(w)
+                    fig.add_trace(go.Candlestick(
+                        x=ha["DateTime"], open=ha["Open"], high=ha["High"],
+                        low=ha["Low"], close=ha["Close"], name="Heikin-Ashi"))
+                elif ctype == "Renko":
+                    pv, tick = contract(inst)
+                    brick = max(tick, round(float(w["ATR20"].median()) / 2, 4)
+                                if "ATR20" in w.columns and w["ATR20"].notna().any() else tick)
+                    rk = renko_bricks(w, brick)
+                    if not rk.empty:
+                        fig.add_trace(go.Bar(
+                            x=list(range(len(rk))),
+                            y=[brick] * len(rk), base=rk[["Open", "Close"]].min(axis=1),
+                            marker_color=[GREEN if up else RED for up in rk["Up"]],
+                            name=f"Renko ({brick:g})"))
+                        fig.update_layout(xaxis_title="brick #")
+                    st.caption(f"Renko brick size {brick:g} (≈½ ATR).")
+                else:   # Line
+                    yname = "Close" if "Close" in w.columns else "EMA20"
+                    fig.add_trace(go.Scatter(x=w["DateTime"], y=w[yname], name=yname,
                                              line=dict(color=MUTED)))
-                    st.caption("bar_data has no OHLC yet — showing the EMA20 line. "
-                               "Recompile TOAIExporterGaugeTick to get real candles.")
-                _marker(fig, go, r["EntryTime"], r["EntryPrice"], "Entry", GREEN)
-                _marker(fig, go, r["ExitTime"], r["ExitPrice"], "Exit", RED)
+                    if not has_ohlc:
+                        st.caption("bar_data has no OHLC yet — showing the EMA20 line. "
+                                   "Recompile TOAIExporterGaugeTick to get real candles.")
+                if ctype != "Renko":
+                    for c in inds:
+                        fig.add_trace(go.Scatter(x=w["DateTime"], y=w[c], name=c,
+                                                 line=dict(width=1)))
+                if ctype != "Renko":   # time-x markers don't map onto brick #
+                    _marker(fig, go, r["EntryTime"], r["EntryPrice"], "Entry", GREEN)
+                    _marker(fig, go, r["ExitTime"], r["ExitPrice"], "Exit", RED)
                 for lvl, name, color in (("StopLoss", "Stop", RED),
                                          ("TakeProfit", "Target", GREEN)):
                     v = pd.to_numeric(pd.Series([r.get(lvl)]), errors="coerce")[0]
@@ -375,6 +604,29 @@ def main():
                           f"{sc_txt} · {r.get('Verdict', '')}",
                     height=480, xaxis_rangeslider_visible=False, margin=dict(t=50))
                 st.plotly_chart(fig, width='stretch')
+
+
+def _calendar_grid(mdf):
+    """A month grid (week rows × weekday cols) of daily P&L for the heatmap."""
+    import calendar
+    vals = {pd.Timestamp(d).date(): v for d, v in zip(mdf["Day"], mdf["uPnL"])}
+    if not vals:
+        return [[None] * 7], [[""] * 7]
+    any_date = next(iter(vals))
+    weeks = calendar.Calendar(firstweekday=0).monthdatescalendar(
+        any_date.year, any_date.month)
+    z, txt = [], []
+    for wk in weeks:
+        zrow, trow = [], []
+        for day in wk:
+            if day.month != any_date.month:
+                zrow.append(None); trow.append("")
+            else:
+                v = vals.get(day)
+                zrow.append(v if v is not None else 0.0)
+                trow.append(f"{day.day}<br>{v:+.0f}" if v is not None else f"{day.day}")
+        z.append(zrow); txt.append(trow)
+    return z, txt
 
 
 def _marker(fig, go, t, price, name, color):
