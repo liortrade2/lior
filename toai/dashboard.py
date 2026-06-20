@@ -271,6 +271,44 @@ def daily_pnl(ex: pd.DataFrame) -> pd.DataFrame:
     return g.reset_index()
 
 
+def evaluation(ex: pd.DataFrame) -> dict:
+    """The Edgewonk-style 'Evaluation' stat block for the Home glance."""
+    e = ex.copy()
+    e["Profit"] = pd.to_numeric(e["Profit"], errors="coerce")
+    e = e.dropna(subset=["Profit"])
+    if e.empty:
+        return {}
+    e["EntryTime"] = pd.to_datetime(e["EntryTime"], errors="coerce")
+    e["ExitTime"] = pd.to_datetime(e.get("ExitTime"), errors="coerce")
+    hold = (e["ExitTime"] - e["EntryTime"]).dt.total_seconds() / 60
+    daily = e.groupby(e["EntryTime"].dt.date)["Profit"].sum()
+    fees = (pd.to_numeric(e["Commission"], errors="coerce").fillna(0).sum()
+            if "Commission" in e.columns else 0.0)
+    # Current win/loss streak (most recent trades).
+    signs = (e.sort_values("EntryTime")["Profit"] > 0).tolist()
+    streak, win = 0, None
+    for s in reversed(signs):
+        if win is None:
+            win, streak = s, 1
+        elif s == win:
+            streak += 1
+        else:
+            break
+    return {
+        "trades": int(len(e)),
+        "avg_per_day": float(daily.mean()),
+        "biggest_win": float(e["Profit"].max()),
+        "biggest_loss": float(e["Profit"].min()),
+        "total_fees": float(fees),
+        "avg_hold": float(hold.mean()) if hold.notna().any() else float("nan"),
+        "win_rate": float((e["Profit"] > 0).mean() * 100),
+        "win_days": int((daily > 0).sum()),
+        "loss_days": int((daily < 0).sum()),
+        "trades_per_day": len(e) / max(1, daily.shape[0]),
+        "streak": streak, "streak_win": win,
+    }
+
+
 # --------------------------------------------------------------------------- #
 #  Phase B: what-if simulators
 # --------------------------------------------------------------------------- #
@@ -321,46 +359,52 @@ THEME_CSS = """
 html, body, [class*="css"], .stMarkdown, button, input, select, textarea, .stSlider {
   font-family: 'Manrope', -apple-system, system-ui, sans-serif !important;
 }
-.block-container { padding-top: 2.0rem; padding-bottom: 3rem; max-width: 1420px; }
-h1 { font-weight: 800 !important; letter-spacing: -0.6px; }
-h2, h3 { font-weight: 700 !important; letter-spacing: -0.3px; }
-/* KPI metric cards */
+.stApp { background: #f6f8fa; }
+.block-container { padding-top: 1.3rem; padding-bottom: 1.2rem; max-width: 1500px; }
+h1 { font-weight: 800 !important; letter-spacing: -0.6px; color: #111827; font-size: 1.7rem; }
+h2, h3 { font-weight: 700 !important; letter-spacing: -0.3px; color: #1f2937; }
+/* KPI metric cards — white with a soft shadow (Edgewonk look) */
 [data-testid="stMetric"] {
-  background: linear-gradient(180deg, #161b22 0%, #11161d 100%);
-  border: 1px solid rgba(255,255,255,0.07);
+  background: #ffffff; border: 1px solid #eceef1;
   border-radius: 14px; padding: 14px 16px 12px 16px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.35);
+  box-shadow: 0 1px 3px rgba(16,24,40,0.06), 0 1px 2px rgba(16,24,40,0.04);
 }
-[data-testid="stMetricValue"] { font-weight: 700; }
-[data-testid="stMetricLabel"] { opacity: 0.7; font-size: 0.8rem; }
-/* Tabs — accent underline on the active one */
-[data-baseweb="tab-list"] { gap: 2px; border-bottom: 1px solid rgba(255,255,255,0.08); }
-[data-baseweb="tab"] { font-weight: 600; padding: 9px 15px; }
-[data-baseweb="tab"][aria-selected="true"] { color: #22c55e !important; }
-[data-baseweb="tab-highlight"] { background-color: #22c55e !important; height: 3px; }
-/* Chart + table panels get a subtle framed card look */
+[data-testid="stMetricValue"] { font-weight: 700; color: #111827; }
+[data-testid="stMetricLabel"] { color: #6b7280; font-size: 0.8rem; font-weight: 600; }
+/* Tabs — green underline on the active one */
+[data-baseweb="tab-list"] { gap: 2px; border-bottom: 1px solid #e5e7eb; }
+[data-baseweb="tab"] { font-weight: 600; padding: 8px 14px; color: #6b7280; }
+[data-baseweb="tab"][aria-selected="true"] { color: #16a34a !important; }
+[data-baseweb="tab-highlight"] { background-color: #16a34a !important; height: 3px; }
+/* Chart + table panels as white cards */
 [data-testid="stPlotlyChart"], [data-testid="stDataFrame"] {
-  background: rgba(255,255,255,0.015);
-  border: 1px solid rgba(255,255,255,0.05);
-  border-radius: 14px; padding: 8px;
+  background: #ffffff; border: 1px solid #eceef1; border-radius: 14px;
+  padding: 8px; box-shadow: 0 1px 3px rgba(16,24,40,0.05);
 }
-section[data-testid="stSidebar"] { border-right: 1px solid rgba(255,255,255,0.06); }
-section[data-testid="stSidebar"] h2 { font-size: 1.05rem; }
-hr { margin: 0.6rem 0; border-color: rgba(255,255,255,0.07); }
+section[data-testid="stSidebar"] { background: #ffffff; border-right: 1px solid #e9ebef; }
+hr { margin: 0.5rem 0; border-color: #e5e7eb; }
+/* Evaluation panel — Edgewonk-style stat rows */
+.evpanel { background: #ffffff; border: 1px solid #eceef1; border-radius: 14px;
+  padding: 4px 16px; box-shadow: 0 1px 3px rgba(16,24,40,0.05); }
+.evrow { display: flex; justify-content: space-between; align-items: center;
+  padding: 8px 0; border-bottom: 1px solid #f1f3f5; font-size: 0.9rem; }
+.evrow:last-child { border-bottom: none; }
+.evrow span { color: #6b7280; } .evrow b { color: #111827; font-weight: 700; }
 </style>
 """
 
 
 def _register_plotly_theme(go, pio):
-    """One Plotly template so every chart is transparent + consistently styled."""
+    """One Plotly template so every chart is transparent + consistently styled
+    for the light Edgewonk-style theme."""
     pio.templates["toai"] = go.layout.Template(layout=dict(
         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-        font=dict(family="Manrope, sans-serif", color="#c9d1d9", size=13),
-        colorway=["#22c55e", "#f43f5e", "#38bdf8", "#a78bfa", "#fbbf24", "#34d399"],
-        xaxis=dict(gridcolor="rgba(255,255,255,0.06)", zerolinecolor="rgba(255,255,255,0.12)",
-                   linecolor="rgba(255,255,255,0.10)"),
-        yaxis=dict(gridcolor="rgba(255,255,255,0.06)", zerolinecolor="rgba(255,255,255,0.12)",
-                   linecolor="rgba(255,255,255,0.10)"),
+        font=dict(family="Manrope, sans-serif", color="#374151", size=13),
+        colorway=["#16a34a", "#ef4444", "#3b82f6", "#a855f7", "#f59e0b", "#10b981"],
+        xaxis=dict(gridcolor="rgba(17,24,39,0.06)", zerolinecolor="rgba(17,24,39,0.15)",
+                   linecolor="rgba(17,24,39,0.12)"),
+        yaxis=dict(gridcolor="rgba(17,24,39,0.06)", zerolinecolor="rgba(17,24,39,0.15)",
+                   linecolor="rgba(17,24,39,0.12)"),
         legend=dict(bgcolor="rgba(0,0,0,0)", borderwidth=0),
         margin=dict(t=44, l=12, r=12, b=12),
     ))
@@ -375,8 +419,8 @@ def main():
     import plotly.graph_objects as go
     import plotly.io as pio
 
-    # Brighter, cohesive palette that matches the Plotly template + CSS accent.
-    GREEN, RED, MUTED, ACCENT = "#22c55e", "#f43f5e", "#8b949e", "#a78bfa"
+    # Light-theme palette that matches the Plotly template + green accent.
+    GREEN, RED, MUTED, ACCENT = "#16a34a", "#ef4444", "#6b7280", "#a855f7"
     mode = config.MODE_LABEL  # LIVE / PLAYBACK
 
     st.set_page_config(page_title=f"TOAI Analytics — {mode}", layout="wide")
@@ -420,22 +464,71 @@ def main():
         return to_units(dollars, inst, unit)
     usym = unit_symbol(unit)
 
-    # ---- top KPI row (realized) ----
-    k = kpis(ex)
-    if k:
-        cols = st.columns(5)
-        cols[0].metric("Trades", k["trades"])
-        cols[1].metric("Net P&L", f"{u(k['net']):,.2f}{usym}")
-        cols[2].metric("Win rate", f"{k['win_rate']:.0f}%")
-        cols[3].metric("Expectancy", f"{u(k['expectancy']):,.2f}{usym}/trade")
-        cols[4].metric("Profit factor",
-                       f"{k['profit_factor']:.2f}" if k["profit_factor"] else "—")
-    else:
-        st.info("No realized fills yet — showing the walk-forward view where available.")
-
-    tab_edge, tab_break, tab_cal, tab_goals, tab_sim, tab_explore, tab_ai = st.tabs(
-        ["🎯 ML edge", "🔬 Breakdowns", "📅 Calendar", "🥅 Goals",
+    tab_home, tab_edge, tab_break, tab_cal, tab_goals, tab_sim, tab_explore, tab_ai = st.tabs(
+        ["🏠 Home", "🎯 ML edge", "🔬 Breakdowns", "📅 Calendar", "🥅 Goals",
          "🧪 Simulator", "🕯 Trade explorer", "🤖 AI Coach"])
+
+    # ---- HOME: one-glance overview (Edgewonk-style) — fits a screen, no scroll ----
+    with tab_home:
+        k = kpis(ex)
+        if not k:
+            st.info("No realized fills yet — the ML edge tab still works on the "
+                    "Walk-forward backtest.")
+        else:
+            ev = evaluation(ex)
+            ml_edge = None
+            if scored is not None and len(scored):
+                _sc = scorecard.scorecard_from_scored(
+                    scored, threshold, inst, out_of_sample=oos,
+                    realized=(source == "Realized fills"))
+                ml_edge = _sc.edge_per_trade if _sc else None
+            c = st.columns(5)
+            c[0].metric("Net P&L", f"{u(k['net']):,.2f}{usym}")
+            c[1].metric("Win rate", f"{k['win_rate']:.0f}%")
+            c[2].metric("Avg / trade", f"{u(k['expectancy']):,.2f}{usym}")
+            c[3].metric("Profit factor",
+                        f"{k['profit_factor']:.2f}" if k["profit_factor"] else "—")
+            c[4].metric("ML edge / trade",
+                        f"{u(ml_edge):+.2f}{usym}" if ml_edge is not None else "—",
+                        "ALLOW vs all")
+
+            left, right = st.columns([3, 2], gap="medium")
+            with left:
+                st.subheader("Profit calendar")
+                dp = daily_pnl(ex)
+                dp["Day"] = pd.to_datetime(dp["Day"])
+                dp["uPnL"] = dp["sum"].apply(u)
+                msel = sorted(dp["Day"].dt.to_period("M").astype(str).unique())[-1]
+                mdf = dp[dp["Day"].dt.to_period("M").astype(str) == msel]
+                z, txt = _calendar_grid(mdf)
+                fig = go.Figure(go.Heatmap(
+                    z=z, x=["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+                    text=txt, texttemplate="%{text}", colorscale="RdYlGn", zmid=0,
+                    showscale=False, hoverinfo="text"))
+                fig.update_layout(title=msel, height=320,
+                                  yaxis=dict(autorange="reversed", showgrid=False),
+                                  xaxis=dict(showgrid=False))
+                st.plotly_chart(fig, width='stretch')
+            with right:
+                st.subheader("Evaluation")
+                hold = f"{ev['avg_hold']:.0f}" if ev["avg_hold"] == ev["avg_hold"] else "—"
+                streak = (f"{ev['streak']} {'win' if ev['streak_win'] else 'loss'}"
+                          if ev.get("streak") else "—")
+                rows = [
+                    ("Total trades", str(ev["trades"])),
+                    ("Avg profit / day", f"{u(ev['avg_per_day']):,.2f}{usym}"),
+                    ("Biggest winner", f"{u(ev['biggest_win']):,.2f}{usym}"),
+                    ("Biggest loser", f"{u(ev['biggest_loss']):,.2f}{usym}"),
+                    ("Total fees", f"${ev['total_fees']:,.2f}"),
+                    ("Avg hold (min)", hold),
+                    ("Win rate", f"{ev['win_rate']:.0f}%"),
+                    ("Winning / losing days", f"{ev['win_days']} / {ev['loss_days']}"),
+                    ("Trades / day", f"{ev['trades_per_day']:.1f}"),
+                    ("Current streak", streak),
+                ]
+                html = "".join(f"<div class='evrow'><span>{a}</span><b>{b}</b></div>"
+                               for a, b in rows)
+                st.markdown(f"<div class='evpanel'>{html}</div>", unsafe_allow_html=True)
 
     # ---- TAB 1: ML edge (works for both sources via the scorecard machinery) ----
     with tab_edge:
