@@ -363,7 +363,7 @@ html, body, [class*="css"], .stMarkdown, button, input, select, textarea, .stSli
   font-family: 'Manrope', -apple-system, system-ui, sans-serif !important;
 }
 .stApp { background: #f6f8fa; }
-.block-container { padding-top: 0.4rem; padding-bottom: 0.6rem; max-width: 1500px; }
+.block-container { padding-top: 0.4rem; padding-bottom: 0.6rem; padding-left: 196px; max-width: 1500px; }
 section[data-testid="stSidebar"] { display: none; }
 [data-testid="stExpander"] summary { font-weight: 700; }
 h1 { font-weight: 800 !important; letter-spacing: -0.6px; color: #111827; font-size: 1.7rem; }
@@ -381,24 +381,22 @@ h2, h3 { font-weight: 700 !important; letter-spacing: -0.3px; color: #1f2937; }
 [data-baseweb="tab"] { font-weight: 600; padding: 8px 14px; color: #6b7280; }
 [data-baseweb="tab"][aria-selected="true"] { color: #16a34a !important; }
 [data-baseweb="tab-highlight"] { background-color: #16a34a !important; height: 3px; }
-/* Vertical left-rail navigation (Edgewonk-style icons down the left side) */
-[data-testid="stTabs"] { display: flex; gap: 18px; align-items: flex-start; }
-[data-testid="stTabs"] > [data-baseweb="tab-list"] {
-  flex: 0 0 174px; flex-direction: column; align-items: stretch; gap: 3px;
-  border-bottom: none; border-right: 1px solid #e6e8eb; padding-right: 8px;
-  position: sticky; top: 6px;
+/* Vertical left-rail navigation — the nav radio (key=toainav) styled as a
+   sticky left column of icon items; content sits to its right. */
+.st-key-toainav { position: fixed; left: 10px; top: 50px; width: 176px; z-index: 50;
+  max-height: calc(100vh - 62px); overflow-y: auto; }
+.st-key-toainav [role="radiogroup"] { flex-direction: column; gap: 3px; }
+.st-key-toainav [role="radiogroup"] label {
+  width: 100%; padding: 8px 12px; border-radius: 8px;
+  border-left: 3px solid transparent; cursor: pointer; margin: 0;
 }
-[data-testid="stTabs"] > [data-baseweb="tab-border"] { display: none; }
-[data-testid="stTabs"] > div:last-child { flex: 1 1 auto; min-width: 0; }
-[data-testid="stTabs"] [data-baseweb="tab"] {
-  justify-content: flex-start; width: 100%; margin: 0; padding: 9px 12px;
-  border-radius: 8px; border-left: 3px solid transparent; font-weight: 600;
+.st-key-toainav [role="radiogroup"] label:hover { background: #f3f5f8; }
+.st-key-toainav [role="radiogroup"] label p { font-weight: 600; font-size: 0.92rem; }
+.st-key-toainav [role="radiogroup"] label:has(input:checked) {
+  background: #ecfdf3; border-left-color: #16a34a;
 }
-[data-testid="stTabs"] [data-baseweb="tab"]:hover { background: #f3f5f8; }
-[data-testid="stTabs"] [data-baseweb="tab"][aria-selected="true"] {
-  background: #ecfdf3; border-left-color: #16a34a; color: #15803d !important;
-}
-[data-testid="stTabs"] [data-baseweb="tab-highlight"] { display: none !important; }
+.st-key-toainav [role="radiogroup"] label:has(input:checked) p { color: #15803d; }
+.st-key-toainav [role="radiogroup"] label > div:first-child { display: none; }  /* hide the radio dot */
 /* Chart + table panels as white cards */
 [data-testid="stPlotlyChart"], [data-testid="stDataFrame"] {
   background: #ffffff; border: 1px solid #eceef1; border-radius: 14px;
@@ -648,13 +646,12 @@ def main():
         return to_units(dollars, inst, unit)
     usym = unit_symbol(unit)
 
-    (tab_home, tab_control, tab_edge, tab_break, tab_cal, tab_goals, tab_sim,
-     tab_explore, tab_ai) = st.tabs(
-        ["🏠 Home", "⚙️ Control", "🎯 ML edge", "🔬 Breakdowns", "📅 Calendar",
-         "🥅 Goals", "🧪 Simulator", "🕯 Trade explorer", "🤖 AI Coach"])
+    NAV = ["🏠 Home", "⚙️ Control", "🎯 ML edge", "🔬 Breakdowns", "📅 Calendar",
+           "🥅 Goals", "🧪 Simulator", "🕯 Trade explorer", "🤖 AI Coach"]
+    view = st.radio("Navigation", NAV, label_visibility="collapsed", key="toainav")
 
     # ---- CONTROL: everything the Control Panel does, in the dashboard ----
-    with tab_control:
+    if view == "⚙️ Control":
         import subprocess
         import sys
         d = _inst_dir(inst)
@@ -814,7 +811,7 @@ def main():
                    "TOAI_Control.bat is already running its watch, don't start a second.")
 
     # ---- HOME: one-glance overview (Edgewonk-style) — fits a screen, no scroll ----
-    with tab_home:
+    elif view == "🏠 Home":
         k = kpis(ex)
         if not k:
             st.info("No realized fills yet — the ML edge tab still works on the "
@@ -888,7 +885,7 @@ def main():
                 jc[1].success(f"Saved → {p}")
 
     # ---- TAB 1: ML edge (works for both sources via the scorecard machinery) ----
-    with tab_edge:
+    elif view == "🎯 ML edge":
         if scored is None or len(scored) == 0:
             st.info("Not enough scored trades for this source yet.")
         else:
@@ -945,7 +942,7 @@ def main():
                 pass
 
     # ---- TAB 2: breakdowns (realized frame) ----
-    with tab_break:
+    elif view == "🔬 Breakdowns":
         if ex.empty:
             st.info("No realized fills yet for breakdowns.")
         else:
@@ -1021,7 +1018,7 @@ def main():
                            "also picking cleaner exits.")
 
     # ---- TAB 3: Calendar & seasonality ----
-    with tab_cal:
+    elif view == "📅 Calendar":
         if ex.empty:
             st.info("No realized fills yet for the calendar.")
         else:
@@ -1056,7 +1053,7 @@ def main():
                     cc.plotly_chart(fig, width='stretch')
 
     # ---- TAB 4: Goals ----
-    with tab_goals:
+    elif view == "🥅 Goals":
         if ex.empty:
             st.info("No realized fills yet to measure against goals.")
         else:
@@ -1080,7 +1077,7 @@ def main():
                 st.progress(min(1.0, max(0.0, pnl / goal if goal else 0)))
 
     # ---- TAB 5: what-if stop/target simulator ----
-    with tab_sim:
+    elif view == "🧪 Simulator":
         if ex.empty or not {"MAE", "MFE"}.issubset(ex.columns):
             st.info("Need realized fills with MAE/MFE to simulate.")
         else:
@@ -1121,7 +1118,7 @@ def main():
                            "neither level keep their real outcome.")
 
     # ---- TAB 6: trade explorer (per-trade candles + markers) ----
-    with tab_explore:
+    elif view == "🕯 Trade explorer":
         if ex.empty:
             st.info("No realized fills to explore yet.")
         else:
@@ -1202,7 +1199,7 @@ def main():
                 st.plotly_chart(fig, width='stretch')
 
     # ---- TAB 7: AI Coach (off-path Claude, ML-aware) ----
-    with tab_ai:
+    elif view == "🤖 AI Coach":
         st.caption("Off-path Claude (claude-opus-4-8) reading your real fills WITH the "
                    "ML score & verdict — the analysis no external journal can do. "
                    "Uses the Anthropic API, so usage costs apply.")
