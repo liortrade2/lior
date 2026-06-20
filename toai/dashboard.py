@@ -363,7 +363,7 @@ html, body, [class*="css"], .stMarkdown, button, input, select, textarea, .stSli
   font-family: 'Manrope', -apple-system, system-ui, sans-serif !important;
 }
 .stApp { background: #f6f8fa; }
-.block-container { padding-top: 0.4rem; padding-bottom: 0.6rem; padding-left: 196px; max-width: 1500px; }
+.block-container { padding-top: 0.4rem; padding-bottom: 0.6rem; padding-left: 196px; padding-right: 14px; max-width: none; }
 section[data-testid="stSidebar"] { display: none; }
 [data-testid="stExpander"] summary { font-weight: 700; }
 h1 { font-weight: 800 !important; letter-spacing: -0.6px; color: #111827; font-size: 1.7rem; }
@@ -383,8 +383,8 @@ h2, h3 { font-weight: 700 !important; letter-spacing: -0.3px; color: #1f2937; fo
 [data-baseweb="tab-highlight"] { background-color: #16a34a !important; height: 3px; }
 /* Vertical left-rail navigation — the nav radio (key=toainav) styled as a
    sticky left column of icon items; content sits to its right. */
-.st-key-toainav { position: fixed; left: 10px; top: 50px; width: 176px; z-index: 50;
-  max-height: calc(100vh - 62px); overflow-y: auto; }
+.st-key-toainav { position: fixed; left: 12px; top: 14px; width: 176px; z-index: 50;
+  max-height: calc(100vh - 24px); overflow-y: auto; }
 .st-key-toainav [role="radiogroup"] { flex-direction: column; gap: 3px; }
 .st-key-toainav [role="radiogroup"] label {
   width: 100%; padding: 8px 12px; border-radius: 8px;
@@ -412,9 +412,9 @@ hr { margin: 0.5rem 0; border-color: #e5e7eb; }
 .evrow:last-child { border-bottom: none; }
 .evrow span { color: #6b7280; } .evrow b { color: #111827; font-weight: 700; }
 /* Custom KPI cards with mini visuals */
-.kpi-row { display: flex; gap: 14px; margin-bottom: 16px; }
+.kpi-row { display: flex; gap: 12px; margin-top: 10px; }
 .kpi-card { flex: 1; background:#fff; border:1px solid #eceef1; border-radius:14px;
-  padding:14px 16px; box-shadow:0 1px 3px rgba(16,24,40,.06); position:relative; min-height:86px; }
+  padding:11px 14px; box-shadow:0 1px 3px rgba(16,24,40,.06); position:relative; min-height:72px; }
 .kpi-label { color:#6b7280; font-size:.8rem; font-weight:600; }
 .kpi-val { color:#111827; font-size:1.3rem; font-weight:800; margin-top:3px; letter-spacing:-0.5px; }
 .kpi-sub { font-size:.72rem; font-weight:600; margin-top:3px; color:#6b7280; }
@@ -426,8 +426,8 @@ hr { margin: 0.5rem 0; border-color: #e5e7eb; }
 .cal-title { font-weight:700; font-size:1.05rem; color:#111827; }
 .cal-grid { display:grid; grid-template-columns:repeat(7,1fr) 0.7fr; gap:6px; }
 .cal-dow { font-size:.68rem; color:#9aa3ad; font-weight:600; text-align:center; }
-.cal-cell { position:relative; min-height:52px; border-radius:10px; background:#f3f5f8;
-  border:1px solid #eef0f3; padding:5px 7px; }
+.cal-cell { position:relative; min-height:58px; border-radius:10px; background:#f3f5f8;
+  border:1px solid #eef0f3; padding:5px 8px; }
 .cal-cell.empty { background:transparent; border:none; }
 .cal-cell.win { background:#e8f6ee; border-color:#cdebd8; }
 .cal-cell.loss { background:#fdeaea; border-color:#f6cccc; }
@@ -620,24 +620,24 @@ def main():
         st.info("No instruments found under the data root yet.")
         return
 
-    # No title, no sidebar — filters live in a collapsible top bar so the
-    # journal uses the full width and fits a small ~1060x512 window; maximize
-    # the window to work with the other tabs.
-    with st.expander("⚙ Filters & goals", expanded=False):
-        fc = st.columns([1.2, 1.6, 2.2, 1.4])
-        inst = fc[0].selectbox("Instrument", insts)
-        source = fc[1].radio("Data source", ["Realized fills", "Walk-forward backtest"],
-                             help="Realized = your actual fills. Walk-forward = "
-                                  "out-of-sample backtest of the active model.")
-        d = _inst_dir(inst)
-        live_thr = config.get_threshold(d)
-        threshold = fc[2].slider("ML gate threshold", 0, 100, int(live_thr),
-                                 help=f"Live threshold is {live_thr:g}.")
-        unit = fc[3].radio("Display unit", ["$", "points", "ticks"])
-        gc = st.columns(3)
-        goal_day = gc[0].number_input("Daily goal ($)", value=200, step=50)
-        goal_week = gc[1].number_input("Weekly goal ($)", value=800, step=100)
-        goal_month = gc[2].number_input("Monthly goal ($)", value=3000, step=250)
+    # Filter VALUES are read from session_state here (top), but the filter
+    # WIDGETS render at the BOTTOM of the page (see _filters_bar at the end).
+    # Streamlit writes a widget's value to session_state on interaction before
+    # the rerun, so the top sees the current value with no lag.
+    ss = st.session_state
+    if ss.get("f_inst") not in insts:
+        ss["f_inst"] = insts[0]
+    ss.setdefault("f_source", "Realized fills")
+    ss.setdefault("f_unit", "$")
+    ss.setdefault("f_gday", 200)
+    ss.setdefault("f_gweek", 800)
+    ss.setdefault("f_gmonth", 3000)
+    inst, source, unit = ss["f_inst"], ss["f_source"], ss["f_unit"]
+    d = _inst_dir(inst)
+    live_thr = config.get_threshold(d)
+    ss.setdefault("f_thr", int(live_thr))
+    threshold = ss["f_thr"]
+    goal_day, goal_week, goal_month = ss["f_gday"], ss["f_gweek"], ss["f_gmonth"]
 
     scored, _thr, oos, dfrom, dto = scored_for(inst, source)
     ex = load_realized(inst)
@@ -840,10 +840,9 @@ def main():
                  "val": f"{u(ml_edge):+.2f}{usym}" if ml_edge is not None else "—",
                  "sub": "ALLOW vs all", "sub_color": GREEN},
             ]
-            # Calendar (wide, left) + Evaluation (right, wide enough to not wrap).
-            left, right = st.columns([3.3, 1.5], gap="medium")
+            # Calendar (wide, left) + Evaluation (narrow, hugs the right).
+            left, right = st.columns([3.8, 1.25], gap="medium")
             with left:
-                st.subheader("Profit calendar")
                 dp = daily_pnl(ex)
                 dp["Day"] = pd.to_datetime(dp["Day"])
                 dp["uPnL"] = dp["sum"].apply(u)
@@ -852,7 +851,6 @@ def main():
                 st.markdown(calendar_html(mdf, usym.strip() or "$"),
                             unsafe_allow_html=True)
             with right:
-                st.subheader("Evaluation")
                 hold = f"{ev['avg_hold']:.0f}" if ev["avg_hold"] == ev["avg_hold"] else "—"
                 streak = (f"{ev['streak']} {'win' if ev['streak_win'] else 'loss'}"
                           if ev.get("streak") else "—")
@@ -1236,6 +1234,20 @@ def main():
                     st.markdown(a)
                 st.session_state["ai_chat"] = hist + [
                     {"role": "user", "content": q}, {"role": "assistant", "content": a}]
+
+    # ---- Filters & goals — pinned at the BOTTOM of the page ----
+    st.divider()
+    with st.expander("⚙ Filters & goals", expanded=False):
+        fc = st.columns([1.2, 1.6, 2.2, 1.4])
+        fc[0].selectbox("Instrument", insts, key="f_inst")
+        fc[1].radio("Data source", ["Realized fills", "Walk-forward backtest"],
+                    key="f_source")
+        fc[2].slider("ML gate threshold", 0, 100, key="f_thr")
+        fc[3].radio("Display unit", ["$", "points", "ticks"], key="f_unit")
+        gc = st.columns(3)
+        gc[0].number_input("Daily goal ($)", step=50, key="f_gday")
+        gc[1].number_input("Weekly goal ($)", step=100, key="f_gweek")
+        gc[2].number_input("Monthly goal ($)", step=250, key="f_gmonth")
 
 
 def _calendar_grid(mdf):
