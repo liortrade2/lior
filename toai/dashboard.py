@@ -272,6 +272,45 @@ def daily_pnl(ex: pd.DataFrame) -> pd.DataFrame:
 
 
 # --------------------------------------------------------------------------- #
+#  Phase B: what-if simulators
+# --------------------------------------------------------------------------- #
+def simulate_sltp(ex: pd.DataFrame, instrument, stop_pts: float, target_pts: float,
+                  tie: str = "stop") -> pd.DataFrame:
+    """Re-simulate each realized trade under a hypothetical fixed stop / target,
+    using the MAE/MFE already recorded (no bar history needed). A stop of S points
+    "would have hit" when the trade's adverse excursion (MAE) reached S; a target
+    of T when the favorable excursion (MFE) reached T. When BOTH would hit the
+    order is unknown from MAE/MFE alone — `tie` decides ('stop' = pessimistic).
+    Trades that hit neither keep their actual P&L."""
+    pv, _ = contract(instrument)
+    rows = []
+    for _, r in ex.iterrows():
+        try:
+            mae, mfe, actual = float(r["MAE"]), float(r["MFE"]), float(r["Profit"])
+        except (TypeError, ValueError, KeyError):
+            continue
+        comm = _safe_float(r.get("Commission")) or 0.0
+        stop_hit = stop_pts > 0 and mae >= stop_pts
+        tgt_hit = target_pts > 0 and mfe >= target_pts
+        outcome = (tie if (stop_hit and tgt_hit)
+                   else "stop" if stop_hit else "target" if tgt_hit else "actual")
+        pnl = (-stop_pts * pv - comm if outcome == "stop"
+               else target_pts * pv - comm if outcome == "target" else actual)
+        rows.append({"EntryTime": r["EntryTime"], "Sim": pnl, "Actual": actual,
+                     "Outcome": outcome, "Score": r.get("Score")})
+    return pd.DataFrame(rows)
+
+
+def _net_stats(pnl: pd.Series) -> dict:
+    p = pd.to_numeric(pnl, errors="coerce").dropna()
+    if p.empty:
+        return {"net": 0.0, "win": 0.0, "pf": None, "n": 0}
+    gl = -p[p < 0].sum()
+    return {"net": float(p.sum()), "win": float((p > 0).mean() * 100),
+            "pf": float(p[p > 0].sum() / gl) if gl > 0 else None, "n": int(len(p))}
+
+
+# --------------------------------------------------------------------------- #
 #  Streamlit UI (imports the heavy libs lazily, so the helpers above stay light)
 # --------------------------------------------------------------------------- #
 def main():
@@ -333,8 +372,9 @@ def main():
     else:
         st.info("No realized fills yet — showing the walk-forward view where available.")
 
-    tab_edge, tab_break, tab_cal, tab_goals, tab_explore = st.tabs(
-        ["🎯 ML edge", "🔬 Breakdowns", "📅 Calendar", "🥅 Goals", "🕯 Trade explorer"])
+    tab_edge, tab_break, tab_cal, tab_goals, tab_sim, tab_explore = st.tabs(
+        ["🎯 ML edge", "🔬 Breakdowns", "📅 Calendar", "🥅 Goals",
+         "🧪 Simulator", "🕯 Trade explorer"])
 
     # ---- TAB 1: ML edge (works for both sources via the scorecard machinery) ----
     with tab_edge:
@@ -528,7 +568,48 @@ def main():
                           f"{pct:.0f}%")
                 st.progress(min(1.0, max(0.0, pnl / goal if goal else 0)))
 
-    # ---- TAB 5: trade explorer (per-trade candles + markers) ----
+    # ---- TAB 5: what-if stop/target simulator ----
+    with tab_sim:
+        if ex.empty or not {"MAE", "MFE"}.issubset(ex.columns):
+            st.info("Need realized fills with MAE/MFE to simulate.")
+        else:
+            pv, tick = contract(inst)
+            st.caption("Re-run your actual trades under a different fixed stop / "
+                       "target, using each trade's recorded MAE/MFE. No bar history "
+                       "needed — answers \"what if my stop was tighter?\" on real fills.")
+            cc = st.columns(3)
+            stop_pts = cc[0].slider("Stop (points)", 0.0, 30.0, 5.0, 0.25)
+            target_pts = cc[1].slider("Target (points)", 0.0, 40.0, 10.0, 0.25)
+            tie = cc[2].radio("If both hit, assume", ["stop", "target"],
+                              help="MAE/MFE don't reveal which came first.")
+            sim = simulate_sltp(ex, inst, stop_pts, target_pts, tie)
+            if sim.empty:
+                st.info("No simulatable trades.")
+            else:
+                a, b = _net_stats(sim["Actual"]), _net_stats(sim["Sim"])
+                m = st.columns(4)
+                m[0].metric("Sim net", f"{u(b['net']):,.2f}{usym}",
+                            f"{u(b['net'] - a['net']):+,.2f} vs actual")
+                m[1].metric("Sim win rate", f"{b['win']:.0f}%", f"{b['win'] - a['win']:+.0f}pp")
+                m[2].metric("Sim PF", f"{b['pf']:.2f}" if b["pf"] else "—")
+                oc = sim["Outcome"].value_counts().to_dict()
+                m[3].metric("Stopped / Target / Actual",
+                            f"{oc.get('stop',0)} / {oc.get('target',0)} / {oc.get('actual',0)}")
+
+                sim = sim.sort_values("EntryTime")
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(y=sim["Actual"].apply(u).cumsum(),
+                                         name="Actual", line=dict(color=MUTED)))
+                fig.add_trace(go.Scatter(y=sim["Sim"].apply(u).cumsum(),
+                                         name="Simulated", line=dict(color=GREEN, width=2)))
+                fig.update_layout(title="Equity — simulated stop/target vs actual",
+                                  height=340, margin=dict(t=40),
+                                  yaxis_title=usym.strip() or "$")
+                st.plotly_chart(fig, width='stretch')
+                st.caption(f"1 point = ${pv:g} · tie broken as '{tie}'. Trades that hit "
+                           "neither level keep their real outcome.")
+
+    # ---- TAB 6: trade explorer (per-trade candles + markers) ----
     with tab_explore:
         if ex.empty:
             st.info("No realized fills to explore yet.")
@@ -547,7 +628,11 @@ def main():
             if bars.empty:
                 st.info("No bar_data to chart.")
             else:
-                w = trade_bars(bars, r["EntryTime"], r["ExitTime"])
+                w = trade_bars(bars, r["EntryTime"], r["ExitTime"]).reset_index(drop=True)
+                if len(w) > 2:
+                    upto = st.slider("Replay (reveal bars up to)", 2, len(w), len(w),
+                                     help="Drag left to replay the trade bar by bar.")
+                    w = w.iloc[:upto]
                 ctypes = (["Candlestick", "Heikin-Ashi", "Renko", "Line"]
                           if has_ohlc else ["Line"])
                 copts = st.columns([2, 3])
