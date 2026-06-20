@@ -17,12 +17,15 @@ import queue
 import threading
 import tkinter as tk
 from datetime import datetime
+from pathlib import Path
 from tkinter import messagebox, ttk
 
 from . import config, journal, scorecard, variants
 from .score import watch
 
 GREEN, RED, MUTED = "#1b8a3a", "#c0392b", "#8a8a8a"
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+ANALYTICS_PORT = 8765   # local Streamlit dashboard
 PLAYBACK_BG, PLAYBACK_FG = "#8e44ad", "#ffffff"  # replay banner — never confuse with live
 
 
@@ -697,6 +700,9 @@ class ControlPanel(tk.Tk):
         self.train_btn = ttk.Button(top, text="⚙ Train export",
                                     command=self._train_export)
         self.train_btn.pack(side="left", padx=(8, 0))
+        self.analytics_btn = ttk.Button(top, text="📈 Analytics",
+                                        command=self._open_analytics)
+        self.analytics_btn.pack(side="left", padx=(8, 0))
 
         ttk.Button(top, text="Set", width=4, command=self._set_threshold).pack(side="right")
         self.thr_var = tk.StringVar(value=f"{config.get_threshold():g}")
@@ -772,6 +778,35 @@ class ControlPanel(tk.Tk):
                 os.startfile(str(dest))
             except Exception:
                 pass
+
+    # ---------- analytics dashboard ----------
+    def _open_analytics(self):
+        """Launch the local Streamlit analytics dashboard in the browser. Reuses
+        the running server if it's already up (Streamlit just opens a new tab).
+        Inherits this process's env, so PLAYBACK routing carries over."""
+        import subprocess
+        import sys
+        import webbrowser
+        url = f"http://localhost:{ANALYTICS_PORT}"
+        proc = getattr(self, "_analytics_proc", None)
+        if proc is not None and proc.poll() is None:
+            webbrowser.open(url)          # already running — just focus a tab
+            return
+        try:
+            self._analytics_proc = subprocess.Popen(
+                [sys.executable, "-m", "streamlit", "run",
+                 str(PROJECT_ROOT / "toai" / "dashboard.py"),
+                 "--server.port", str(ANALYTICS_PORT),
+                 "--server.headless", "true"],
+                cwd=str(PROJECT_ROOT))
+        except FileNotFoundError:
+            messagebox.showwarning(
+                "Analytics",
+                "Streamlit isn't installed.\n\nRun:  pip install -r requirements.txt")
+            return
+        # Give the server a moment to bind, then open the browser.
+        self.after(2500, lambda: webbrowser.open(url))
+        self.analytics_btn.config(text="📈 Analytics ▸")
 
     # ---------- NinjaTrader cache maintenance ----------
     def _clear_nt_cache(self):

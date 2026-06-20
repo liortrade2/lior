@@ -44,8 +44,11 @@ namespace NinjaTrader.NinjaScript.Indicators
         private string instThresholdFile;   // <instrument>\threshold.txt (overrides root)
         private string dataDir, featuresFile, barDataFile, scoreFile, barScoresFile,
             entryWindowFile;
+        // OHLC appended (2026-06-20) so the analytics dashboard can draw real
+        // candlesticks. Python derives features by NAME, so extra trailing
+        // columns are ignored by training/scoring.
         private const string Header =
-            "ATR20,EMA9,EMA20,EMA50,RSI14,ADX14,Distance_SwingHigh,Distance_SwingLow,Volume_Ratio,BBand_Width,ZScore";
+            "ATR20,EMA9,EMA20,EMA50,RSI14,ADX14,Distance_SwingHigh,Distance_SwingLow,Volume_Ratio,BBand_Width,ZScore,Open,High,Low,Close";
 
         [NinjaScriptProperty]
         public double MinProbabilityThreshold { get; set; } = 55.0;
@@ -176,6 +179,7 @@ namespace NinjaTrader.NinjaScript.Indicators
                     if (ExportBarData)
                     {
                         ArchiveBarDataOnTimeframeChange();
+                        ArchiveBarDataOnHeaderChange();   // OHLC upgrade: don't append new cols to an old header
                         if (!System.IO.File.Exists(barDataFile))
                             System.IO.File.WriteAllText(barDataFile, "DateTime," + Header + Environment.NewLine);
                         exportedStamps = LoadExportedStamps(barDataFile, ref ioError);
@@ -222,6 +226,30 @@ namespace NinjaTrader.NinjaScript.Indicators
             }
             if (prev != tf)
                 System.IO.File.WriteAllText(metaPath, tf);
+        }
+
+        private void ArchiveBarDataOnHeaderChange()
+        {
+            // When the column set changes (e.g. OHLC was added), an existing
+            // bar_data.csv has the OLD header. Appending new, wider rows under it
+            // would misalign columns. Only the single writer archives the old
+            // file so it gets recreated with the current header.
+            if (!IsWriter()) return;
+            if (!System.IO.File.Exists(barDataFile)) return;
+            try
+            {
+                string firstLine;
+                using (var sr = new System.IO.StreamReader(barDataFile))
+                    firstLine = sr.ReadLine();
+                if (firstLine != null && firstLine.Trim() == ("DateTime," + Header))
+                    return;   // header already current
+                string archive = dataDir + @"\bar_data_preOHLC_" +
+                    DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".csv";
+                System.IO.File.Move(barDataFile, archive);
+                if (System.IO.File.Exists(barScoresFile))
+                    System.IO.File.Delete(barScoresFile);
+            }
+            catch (Exception ex) { ioError = ex.Message; }
         }
 
         private static bool TryWriteShared(string path, string content)
@@ -383,7 +411,7 @@ namespace NinjaTrader.NinjaScript.Indicators
             double stdDev20 = StdDev(20)[ago];
             double zScore = stdDev20 > 0 ? (close - sma20) / stdDev20 : 0;
             return string.Format(
-                "{0},{1},{2},{3},{4},{5},{6},{7},{8},{9},{10}",
+                "{0},{1},{2},{3},{4},{5},{6},{7},{8},{9},{10},{11},{12},{13},{14}",
                 ATR(20)[ago],
                 EMA(9)[ago], EMA(20)[ago], EMA(50)[ago],
                 RSI(14, 3)[ago],
@@ -392,7 +420,8 @@ namespace NinjaTrader.NinjaScript.Indicators
                 swingLow > 0 ? close - swingLow : 0,
                 volumeSma > 0 ? Volume[ago] / volumeSma : 1,
                 bbWidth,
-                zScore);
+                zScore,
+                Open[ago], High[ago], Low[ago], close);
         }
 
         private void PushHistory(double v)

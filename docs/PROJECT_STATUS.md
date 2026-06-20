@@ -85,6 +85,15 @@ bar_scores כולם נמחקו. ה-`MES` עכשיו **לוח נקי** (variants.
   (ראה §6) — NinjaScript executions-logger או ייצוא Trade Performance ידני.
 - **ניהול וריאנטים** (`toai/variants.py`, main.py אופציה 8) — כל אימון נשמר כווריאנט; החלפה בלי אימון מחדש.
 - **אימון אוטומטי של כל ה-exports** — ה-watch סורק את כל הקבצים בשורש ומאמן כל חדש (לכל הכלים יחד).
+- **📈 Analytics dashboard** (`toai/dashboard.py`, `TOAI_Analytics.bat`, כפתור 📈 בפאנל) — דאשבורד
+  אנליטיקה **מקומי ו-ML-aware** (Streamlit+Plotly), "TradesViz אצלנו". קורא את אותם
+  `executions.csv`/`journal.csv`/`bar_data.csv` — שום דבר לא יוצא מהמכונה. 3 טאבים: **ML edge**
+  (תוחלת לפי דלי-ציון + עקומת ALLOW מול trade-everything, סף אינטראקטיבי, ל-Realized **או**
+  Walk-forward), **Breakdowns** (P&L לפי שעה/variant, MAE מול P&L צבוע ב-ML score, R-multiple),
+  **Trade explorer** (טבלה + עסקה-על-גרף נרות עם entry/exit/SL/TP/MAE/MFE וה-ML score).
+  אומת חי עם Streamlit AppTest (אין exceptions בשני המקורות). **דורש**: `pip install -r requirements.txt`
+  (נוספו streamlit+plotly). **נרות אמיתיים דורשים OHLC** — נוסף ל-`TOAIExporterGaugeTick` (לקמפל);
+  עד אז fallback לקו EMA20.
 
 ---
 
@@ -229,9 +238,11 @@ bar_scores כולם נמחקו. ה-`MES` עכשיו **לוח נקי** (variants.
 - **תיק חי** — צריך 2-3 אסטרטגיות מאומתות (WF>0.55 + 3/3) בקורלציה נמוכה. מספר ה-edges כרגע **לא ידוע** (לפני הריצה).
 - **Tier-2 sizing** — `sizing` (main אופ' 12) על מודל גדול; לחווט רק אם net/DD עולה.
 
-### ⚠️ צד ליאור — לקמפל מחדש NinjaScript (שינויי 2026-06-19):
-`TOAIExporterGaugeTick` (סף פר-מכשיר + PlaybackMode) ו-`TOAIExecutionLogger`
+### ⚠️ צד ליאור — לקמפל מחדש NinjaScript (שינויי 2026-06-19/20):
+`TOAIExporterGaugeTick` (סף פר-מכשיר + PlaybackMode, **+ 2026-06-20: OHLC ל-bar_data**
+לנרות בדאשבורד — מארכב bar_data ישן אוטומטית כי הכותרת השתנתה) ו-`TOAIExecutionLogger`
 (executions_<date>.csv עמידים + SL/TP/MAE/MFE/Commission + ניתוב Playback101). הדבק + F5.
-וכל פעם להפעיל מחדש `TOAI_Control.bat` אחרי שינוי Python.
+וכל פעם להפעיל מחדש `TOAI_Control.bat` אחרי שינוי Python. **חדש**: להריץ
+`pip install -r requirements.txt` (streamlit+plotly לדאשבורד 📈 Analytics).
 
 זרימה: כל קוד ב-git, לקמט+לדחוף אחרי כל שינוי, לעדכן את הקובץ הזה בסוף.
