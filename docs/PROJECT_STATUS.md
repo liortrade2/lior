@@ -156,6 +156,12 @@ bar_scores כולם נמחקו. ה-`MES` עכשיו **לוח נקי** (variants.
 - **gate lag ~2ש'** (OnEachTick) — לא 0; סיגנל בדיוק בסגירת בר נשען על הציון הקודם.
 - **DST**: ה-timestamps של NinjaTrader הם ET נכון — **בלי שום המרה** (אומת על 2679 עסקאות).
 - **features יחסיים בלבד** (toai/features.py) — לעולם לא רמות מחיר אבסולוטיות.
+- **Edgewonk: לייבא דרך ה-importer של NinjaTrader, לא Generic** (אומת חי 2026-06-19).
+  ל-Edgewonk יש 2 importers: ה-**Generic** (תבנית עם Custom Stats) **מרסק תאריכים ל-1899-12-31**
+  (קורא תאריך כמספר; נכשל על טקסט וגם על תא-datetime אמיתי). ה-**NinjaTrader importer** קורא נכון
+  ומצפה ל-19 עמודות = `EDGEWONK_COLUMNS`. הייצוא-החי (`edgewonk._nt_live_rows`) כותב בדיוק את
+  הפריסה הזו עם תאי datetime אמיתיים; ML score/Verdict ב-`Entry name`, Variant ב-`Strategy`
+  (אין Custom Stats בפריסה הזו). בצד ליאור: Settings→Import→NinjaTrader + NinjaTrader בשפה אנגלית.
 
 ## 8. נקודות שחזור
 - ‏git: ענף `claude/magical-dirac-1yd0d4`. ‏HEAD נוכחי ≈ `de916ff` (נדחף).
