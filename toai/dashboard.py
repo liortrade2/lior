@@ -365,6 +365,9 @@ html, body, [class*="css"], .stMarkdown, button, input, select, textarea, .stSli
 .stApp { background: #f6f8fa; }
 .block-container { padding-top: 0.4rem; padding-bottom: 0.6rem; padding-left: 196px; padding-right: 8px; max-width: none; }
 section[data-testid="stSidebar"] { display: none; }
+/* KPI strip + bottom filters sit BELOW the nav rail, so reclaim the left
+   gutter: pull them left to the window edge and keep them flush right. */
+.st-key-kpiwrap, .st-key-botbar { margin-left: -184px; width: calc(100% + 184px) !important; }
 [data-testid="stExpander"] summary { font-weight: 700; }
 h1 { font-weight: 800 !important; letter-spacing: -0.6px; color: #111827; font-size: 1.7rem; }
 h2, h3 { font-weight: 700 !important; letter-spacing: -0.3px; color: #1f2937; font-size: 1.15rem !important; }
@@ -875,11 +878,11 @@ def main():
                                for a, b in rows)
                 st.markdown(f"<div class='evpanel'>{html}</div>", unsafe_allow_html=True)
 
-            # KPI cards — st.columns(5) so the row's outer edges line up exactly
-            # with the calendar + evaluation columns above (same width, same
-            # margins). The two sections then read as one consistent block.
-            for col, c in zip(st.columns(5, gap="small"), cards):
-                col.markdown(_kpi_card_one(c), unsafe_allow_html=True)
+            # KPI cards — pulled to the full window width (left edge under the
+            # nav rail, which has ended above this row), flush to the right.
+            with st.container(key="kpiwrap"):
+                for col, c in zip(st.columns(5, gap="small"), cards):
+                    col.markdown(_kpi_card_one(c), unsafe_allow_html=True)
 
 
     # ---- TAB 1: ML edge (works for both sources via the scorecard machinery) ----
@@ -1243,9 +1246,10 @@ def main():
                 st.session_state["ai_chat"] = hist + [
                     {"role": "user", "content": q}, {"role": "assistant", "content": a}]
 
-    # ---- Filters & goals — pinned at the BOTTOM of the page ----
-    st.divider()
-    with st.expander("⚙ Filters & goals", expanded=False):
+    # ---- Filters & goals — pinned at the BOTTOM, full width below the nav ----
+    botbar = st.container(key="botbar")
+    botbar.divider()
+    with botbar.expander("⚙ Filters & goals", expanded=False):
         fc = st.columns([1.2, 1.6, 2.2, 1.4])
         fc[0].selectbox("Instrument", insts, key="f_inst")
         fc[1].radio("Data source", ["Realized fills", "Walk-forward backtest"],
