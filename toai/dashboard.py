@@ -496,19 +496,19 @@ def _splitbar_svg(win, loss, w=92, h=9):
             f'rx="3" fill="#ef4444"/></svg>')
 
 
+def _kpi_card_one(c) -> str:
+    """One KPI card: label on top, then value + mini-visual side by side (so the
+    spark/gauge/split-bar never overlaps the label), optional sub line below."""
+    vis = f'<div class="kpi-vis">{c["visual"]}</div>' if c.get("visual") else ""
+    sub = (f'<div class="kpi-sub" style="color:{c.get("sub_color", "#6b7280")}">'
+           f'{c["sub"]}</div>') if c.get("sub") else ""
+    return (f'<div class="kpi-card"><div class="kpi-label">{c["label"]}</div>'
+            f'<div class="kpi-mid"><div class="kpi-val">{c["val"]}</div>{vis}</div>{sub}</div>')
+
+
 def kpi_cards_html(cards) -> str:
-    """cards: list of {label, val, sub?, sub_color?, visual?(svg)}.
-    Layout: label on top, then value + mini-visual side by side (so the spark/
-    gauge/split-bar never overlaps the label), optional sub line below."""
-    out = []
-    for c in cards:
-        vis = f'<div class="kpi-vis">{c["visual"]}</div>' if c.get("visual") else ""
-        sub = (f'<div class="kpi-sub" style="color:{c.get("sub_color", "#6b7280")}">'
-               f'{c["sub"]}</div>') if c.get("sub") else ""
-        out.append(f'<div class="kpi-card"><div class="kpi-label">{c["label"]}</div>'
-                   f'<div class="kpi-mid"><div class="kpi-val">{c["val"]}</div>{vis}</div>'
-                   f'{sub}</div>')
-    return f'<div class="kpi-row">{"".join(out)}</div>'
+    """A flex row of KPI cards — used by the saved 1060x512 journal HTML."""
+    return f'<div class="kpi-row">{"".join(_kpi_card_one(c) for c in cards)}</div>'
 
 
 def calendar_html(mdf, unit_label="$") -> str:
@@ -875,8 +875,11 @@ def main():
                                for a, b in rows)
                 st.markdown(f"<div class='evpanel'>{html}</div>", unsafe_allow_html=True)
 
-            # KPI cards row — now BELOW the calendar.
-            st.markdown(kpi_cards_html(cards), unsafe_allow_html=True)
+            # KPI cards — st.columns(5) so the row's outer edges line up exactly
+            # with the calendar + evaluation columns above (same width, same
+            # margins). The two sections then read as one consistent block.
+            for col, c in zip(st.columns(5, gap="small"), cards):
+                col.markdown(_kpi_card_one(c), unsafe_allow_html=True)
 
 
     # ---- TAB 1: ML edge (works for both sources via the scorecard machinery) ----
