@@ -32,6 +32,9 @@ except ImportError:
 
 OHLC = ["Open", "High", "Low", "Close"]
 
+from pathlib import Path as _Path  # noqa: E402
+PROJECT_ROOT = _Path(__file__).resolve().parent.parent
+
 
 # --------------------------------------------------------------------------- #
 #  Data loading / shaping (no streamlit — testable headless)
@@ -581,9 +584,142 @@ def main():
         return to_units(dollars, inst, unit)
     usym = unit_symbol(unit)
 
-    tab_home, tab_edge, tab_break, tab_cal, tab_goals, tab_sim, tab_explore, tab_ai = st.tabs(
-        ["🏠 Home", "🎯 ML edge", "🔬 Breakdowns", "📅 Calendar", "🥅 Goals",
-         "🧪 Simulator", "🕯 Trade explorer", "🤖 AI Coach"])
+    (tab_home, tab_control, tab_edge, tab_break, tab_cal, tab_goals, tab_sim,
+     tab_explore, tab_ai) = st.tabs(
+        ["🏠 Home", "⚙️ Control", "🎯 ML edge", "🔬 Breakdowns", "📅 Calendar",
+         "🥅 Goals", "🧪 Simulator", "🕯 Trade explorer", "🤖 AI Coach"])
+
+    # ---- CONTROL: everything the Control Panel does, in the dashboard ----
+    with tab_control:
+        import subprocess
+        import sys
+        d = _inst_dir(inst)
+
+        # Live status
+        st.subheader("Live status")
+        try:
+            sc_txt = (d / "score.txt").read_text(encoding="utf-8", errors="ignore").strip()
+        except OSError:
+            sc_txt = "—"
+        thr = config.get_threshold(d)
+        try:
+            verdict = "ALLOW" if float(sc_txt) >= thr else "SKIP"
+        except ValueError:
+            verdict = "—"
+        sc = st.columns(4)
+        sc[0].metric("Live score", sc_txt)
+        sc[1].metric("Threshold", f"{thr:g}")
+        sc[2].metric("Gate", verdict)
+        try:
+            from . import health
+            h = health.check(inst)
+            sc[3].metric("Model age", f"{h['age_days']}d" if h.get("age_days") is not None else "—",
+                         "stale" if h.get("stale") else "ok")
+            for m in h.get("messages", []):
+                st.caption("⚠ " + m)
+        except Exception:
+            pass
+
+        st.divider()
+        st.subheader("Gate threshold")
+        tcol = st.columns([3, 1])
+        newthr = tcol[0].number_input("min ML score to ALLOW", 0, 100, int(thr), key="ctl_thr")
+        if tcol[1].button("Apply to live", width='stretch'):
+            config.set_threshold(float(newthr), d)
+            st.success(f"Live threshold for {inst} set to {newthr:g}.")
+
+        st.divider()
+        st.subheader("Active model / variants")
+        try:
+            reg = variants._load_registry(d)
+        except Exception:
+            reg = {}
+        if reg:
+            slugs = list(reg)
+            active = next((s for s, v in reg.items() if v.get("active")), None)
+
+            def _vlabel(s):
+                v = reg[s]
+                dot = "● " if s == active else ""
+                return (f"{dot}{v.get('name', s)}  ·  PMV {v.get('pmv', 0):.3f} · "
+                        f"WF {v.get('wf_mean', 0):.3f} · {v.get('timeframe', '?')}m")
+            pick = st.radio("Choose the variant to score live with", slugs,
+                            index=slugs.index(active) if active in slugs else 0,
+                            format_func=_vlabel, key="ctl_variant")
+            if st.button("Activate selected variant", type="primary"):
+                variants.select_variant(pick, d, rescore=True)
+                st.success(f"Activated: {reg[pick].get('name', pick)} — the live "
+                           "model.pkl is now this variant.")
+        else:
+            st.info("No variants yet. Train an export below to create one.")
+
+        st.divider()
+        st.subheader("Actions")
+        a = st.columns(3)
+        if a[0].button("⚙ Train newest export", width='stretch'):
+            from .build_and_train import build_and_train, find_trades_export
+            p = find_trades_export()
+            if p is None:
+                st.warning(f"No trades export found in {config.DATA_ROOT}.")
+            else:
+                with st.spinner(f"Training {p.name}…"):
+                    try:
+                        build_and_train(trades_file=p)
+                        st.success(f"Trained {p.name}. Reload the chart for scores.")
+                    except Exception as e:
+                        st.error(f"Train failed: {e}")
+        if a[1].button("📤 Export → Edgewonk", width='stretch'):
+            from . import edgewonk
+            try:
+                out, note = edgewonk.export_active(inst, force=True)
+                st.success(f"Edgewonk export: {note}"
+                           + (f"\n\n{out}" if out else ""))
+            except Exception as e:
+                st.error(f"Export failed: {e}")
+        if a[2].button("💾 Backup models", width='stretch'):
+            from . import backup
+            try:
+                p = backup.backup_instrument(d)
+                st.success(f"Backed up → {p}" if p else "Nothing to back up yet.")
+            except Exception as e:
+                st.error(f"Backup failed: {e}")
+
+        b = st.columns(3)
+        if b[0].button("🧹 Clear NT cache", width='stretch'):
+            from . import ninja_cache
+            try:
+                st.success(f"Cleared NinjaTrader cache: {ninja_cache.clear_cache()}")
+            except Exception as e:
+                st.error(f"Clear failed: {e}")
+        arm = b[1].checkbox("Arm day routines", help="Start/End-day launch or "
+                            "close NinjaTrader. Tick to enable the buttons.")
+        if b[2].button("🌅 Start day", width='stretch', disabled=not arm):
+            from . import routines
+            with st.spinner("Start-of-day…"):
+                st.success(str(routines.start_of_day()))
+        if arm and st.button("🌙 End day"):
+            from . import routines
+            with st.spinner("End-of-day…"):
+                st.success(str(routines.end_of_day()))
+
+        st.divider()
+        st.subheader("Live watch")
+        proc = st.session_state.get("watch_proc")
+        running = proc is not None and proc.poll() is None
+        st.write("Status: " + ("🟢 running (this dashboard)" if running else "⚪ not started here"))
+        w = st.columns(2)
+        if w[0].button("▶ Start watch", width='stretch', disabled=running):
+            st.session_state["watch_proc"] = subprocess.Popen(
+                [sys.executable, "-c", "from toai.score import watch; watch()"],
+                cwd=str(PROJECT_ROOT))
+            st.success("Watch started in the background.")
+        if w[1].button("⏹ Stop watch", width='stretch', disabled=not running):
+            proc.terminate()
+            st.session_state["watch_proc"] = None
+            st.success("Watch stopped.")
+        st.caption("The watch scores live bars → score.txt, ingests fills → journal, "
+                   "and auto-trains new exports. ⚠️ Run only ONE watcher — if "
+                   "TOAI_Control.bat is already running its watch, don't start a second.")
 
     # ---- HOME: one-glance overview (Edgewonk-style) — fits a screen, no scroll ----
     with tab_home:
