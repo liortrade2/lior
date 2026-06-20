@@ -363,7 +363,7 @@ html, body, [class*="css"], .stMarkdown, button, input, select, textarea, .stSli
   font-family: 'Manrope', -apple-system, system-ui, sans-serif !important;
 }
 .stApp { background: #f6f8fa; }
-.block-container { padding-top: 0.4rem; padding-bottom: 0.6rem; padding-left: 196px; padding-right: 14px; max-width: none; }
+.block-container { padding-top: 0.4rem; padding-bottom: 0.6rem; padding-left: 196px; padding-right: 8px; max-width: none; }
 section[data-testid="stSidebar"] { display: none; }
 [data-testid="stExpander"] summary { font-weight: 700; }
 h1 { font-weight: 800 !important; letter-spacing: -0.6px; color: #111827; font-size: 1.7rem; }
@@ -412,9 +412,9 @@ hr { margin: 0.5rem 0; border-color: #e5e7eb; }
 .evrow:last-child { border-bottom: none; }
 .evrow span { color: #6b7280; } .evrow b { color: #111827; font-weight: 700; }
 /* Custom KPI cards with mini visuals */
-.kpi-row { display: flex; gap: 14px; margin-top: 12px; width: 100%; }
+.kpi-row { display: flex; gap: 10px; margin-top: 12px; width: 100%; }
 .kpi-card { flex: 1 1 0; min-width: 0; background:#fff; border:1px solid #eceef1;
-  border-radius:14px; padding:12px 16px; box-shadow:0 1px 3px rgba(16,24,40,.06);
+  border-radius:14px; padding:12px 14px; box-shadow:0 1px 3px rgba(16,24,40,.06);
   display:flex; flex-direction:column; justify-content:center; min-height:96px; }
 .kpi-label { color:#6b7280; font-size:.82rem; font-weight:600; }
 .kpi-mid { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:4px; }
