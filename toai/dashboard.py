@@ -459,6 +459,10 @@ hr { margin: 0.5rem 0; border-color: #e5e7eb; }
 .cal-cardtitle { font-weight:700; font-size:1.15rem; color:#111827; }
 .cal-monthlbl { font-weight:700; font-size:1rem; color:#111827; text-align:center;
   margin-top:10px; }  /* drop "June 2026" onto the Monthly-goal ($3,000) line */
+/* live-watch radio centered under the month label */
+.st-key-watch_radio [data-testid="stWidgetLabel"] { justify-content:center; text-align:center; }
+.st-key-watch_radio [data-testid="stWidgetLabel"] p { font-size:.72rem; color:#6b7280; }
+.st-key-watch_radio [role="radiogroup"] { justify-content:center; gap:10px; }
 /* the ‹ › nav buttons in the calendar header row */
 .st-key-cal_prev button, .st-key-cal_next button { border-radius:9px; padding:2px 0;
   min-height:34px; color:#374151; font-size:1.1rem; margin-top:10px; }
@@ -1145,19 +1149,20 @@ def main():
                 import sys
                 wp = ss.get("watch_proc")
                 alive = wp is not None and wp.poll() is None
-                if ss.get("watch_radio") == "▶ Watch ON" and not alive:
+                if ss.get("watch_radio") == "▶ On" and not alive:
                     ss["watch_proc"] = subprocess.Popen(
                         [sys.executable, "-c", "from toai.score import watch; watch()"],
                         cwd=str(PROJECT_ROOT))
-                elif ss.get("watch_radio") == "⏹ Watch OFF" and alive:
+                elif ss.get("watch_radio") == "⏹ Off" and alive:
                     wp.terminate()
                     ss["watch_proc"] = None
             _wp = ss.get("watch_proc")
-            ss.setdefault("watch_radio", "▶ Watch ON"
-                          if (_wp is not None and _wp.poll() is None) else "⏹ Watch OFF")
-            wrc = st.columns([0.7, 2.7, 5], gap="small")
-            wrc[1].radio("Live watch", ["⏹ Watch OFF", "▶ Watch ON"], horizontal=True,
-                         label_visibility="collapsed", key="watch_radio",
+            _alive = _wp is not None and _wp.poll() is None
+            if ss.get("watch_radio") not in ("⏹ Off", "▶ On"):
+                ss["watch_radio"] = "▶ On" if _alive else "⏹ Off"
+            wrc = st.columns([0.7, 1.7, 0.7, 0.3, 5], gap="small")
+            wrc[1].radio("🟢 watch running" if _alive else "⚪ watch stopped",
+                         ["⏹ Off", "▶ On"], horizontal=True, key="watch_radio",
                          on_change=_toggle_watch)
 
             # ── Below the calendar: KPI cards, then the Evaluation panel ──
