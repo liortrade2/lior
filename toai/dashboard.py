@@ -465,14 +465,34 @@ hr { margin: 0.5rem 0; border-color: #e5e7eb; }
 .cal-pnl { font-size:.9rem; font-weight:800; margin-top:24px; }
 .cal-pnl.win { color:#16a34a; } .cal-pnl.loss { color:#dc2626; }
 .cal-n { font-size:.66rem; color:#6b7280; }
+/* daily / weekly goal progress bars */
+.cal-daybar { position:absolute; left:9px; right:9px; bottom:7px; height:3px;
+  border-radius:2px; background:rgba(16,24,40,.07); overflow:hidden; }
+.cal-daybar i { display:block; height:100%; border-radius:2px; background:#16a34a; }
+.cal-daybar.done i { background:#15803d; }
+.cal-wbar { width:78%; height:4px; margin-top:5px; border-radius:2px;
+  background:rgba(16,24,40,.07); overflow:hidden; }
+.cal-wbar i { display:block; height:100%; border-radius:2px; background:#16a34a; }
+.cal-wbar.done i { background:#15803d; }
 .cal-total { border-radius:12px; background:#f8fafc; border:1px solid #eef0f3;
-  display:flex; align-items:center; justify-content:center; }
+  display:flex; flex-direction:column; align-items:center; justify-content:center; }
 .cal-total.win { background:#e8f6ee; border-color:#cdebd8; }
 .cal-total.loss { background:#fdeaea; border-color:#f6cccc; }
 .cal-foot { display:flex; justify-content:flex-end; align-items:center; gap:10px;
   margin-top:10px; padding-top:10px; border-top:1px solid #eef0f3; }
 .cal-foot span { color:#6b7280; font-size:.8rem; font-weight:600; }
 .cal-foot b { font-size:1rem; font-weight:800; margin:0; }
+/* Monthly-goal tracker in the footer: set / now / remaining */
+.cal-goal { width:300px; max-width:62%; }
+.cal-goal-row { display:flex; justify-content:space-between; align-items:center; padding:1px 0; }
+.cal-goal-row span { color:#6b7280; font-size:.8rem; font-weight:600; }
+.cal-goal-row b { font-size:.95rem; font-weight:800; }
+.cal-goal-row b.gval { color:#111827; }
+.cal-goal-bar { height:7px; border-radius:4px; background:#eef1f6; overflow:hidden; margin:5px 0; }
+.cal-goal-bar i { display:block; height:100%; border-radius:4px; background:#16a34a; }
+.cal-goal-bar i.loss { background:#ef4444; }
+.cal-goal-rem { text-align:right; font-size:.78rem; font-weight:700; color:#6b7280; margin-top:1px; }
+.cal-goal-rem.win { color:#16a34a; } .cal-goal-rem.loss { color:#dc2626; }
 </style>
 """
 
@@ -586,15 +606,30 @@ def _cal_fmt(v, unit_label):
     return f"{v:+,.0f}" if unit_label == "$" else f"{v:+,.2f}"
 
 
-def calendar_html(mdf, unit_label="$", month=None, today=None) -> str:
+def _goalbar(actual, target, cls):
+    """A thin progress bar (actual vs $ target). Empty when target unset."""
+    if not target:
+        return ""
+    pct = max(0.0, min(100.0, actual / target * 100))
+    done = " done" if actual >= target else ""
+    return f"<div class='{cls}{done}'><i style='width:{pct:.0f}%'></i></div>"
+
+
+def calendar_html(mdf, unit_label="$", month=None, today=None,
+                  goal=None, goal_now=0.0, goal_day=None, goal_week=None) -> str:
     """An Edgewonk-style month grid: each day a tinted tile with a circular
     day-badge, the P&L and trade count; the current day framed; next-month
     days hatched; a tinted weekly Total column and a month grand-total footer.
     `month` ('YYYY-MM') pins which month to draw (empty months still render);
-    `today` (a date) frames the current day."""
+    `today` (a date) frames the current day. `goal`/`goal_day`/`goal_week` are
+    the $ targets: the footer tracks the month vs `goal` (using `goal_now`, the
+    month net in $), each day cell shows a daily-goal bar, and each weekly Total
+    cell a weekly-goal bar."""
     import calendar
-    m = {pd.Timestamp(d).date(): (p, n)
-         for d, p, n in zip(mdf["Day"], mdf["uPnL"], mdf["count"])}
+    has_sum = "sum" in getattr(mdf, "columns", [])
+    sums = mdf["sum"] if has_sum else mdf["uPnL"]
+    m = {pd.Timestamp(d).date(): (p, n, s)
+         for d, p, n, s in zip(mdf["Day"], mdf["uPnL"], mdf["count"], sums)}
     if month:
         yr, mo = (int(x) for x in str(month).split("-")[:2])
     elif m:
@@ -609,7 +644,8 @@ def calendar_html(mdf, unit_label="$", month=None, today=None) -> str:
     cells = []
     mtot = 0.0
     for wk in weeks:
-        wtot = 0.0
+        wtot = 0.0       # week net in display units
+        wtot_d = 0.0     # week net in $ (for the weekly-goal bar)
         for day in wk:
             badge = f"<span class='cal-daynum'>{day.day}</span>"
             if day.month != mo:
@@ -619,27 +655,51 @@ def calendar_html(mdf, unit_label="$", month=None, today=None) -> str:
             tcls = " today" if today and day == today else ""
             info = m.get(day)
             if info:
-                p, n = info
+                p, n, s = info
                 wtot += p
+                wtot_d += s
                 cls = "win" if p >= 0 else "loss"
+                bar = _goalbar(s, goal_day, "cal-daybar")
+                tip = (f" title='Day {s:+,.0f}$ of ${goal_day:,.0f} goal'"
+                       if goal_day else "")
                 # Trade days are links → ?day=YYYY-MM-DD opens that day's journal.
                 cells.append(
-                    f"<a class='cal-cell link {cls}{tcls}' "
+                    f"<a class='cal-cell link {cls}{tcls}'{tip} "
                     f"href='?day={day.isoformat()}' target='_self'>{badge}"
                     f"<div class='cal-pnl {cls}'>{_cal_fmt(p, unit_label)}</div>"
-                    f"<div class='cal-n'>{int(n)} trade{'s' if n != 1 else ''}</div></a>")
+                    f"<div class='cal-n'>{int(n)} trade{'s' if n != 1 else ''}</div>"
+                    f"{bar}</a>")
             else:
                 cells.append(f"<div class='cal-cell{tcls}'>{badge}</div>")
         mtot += wtot
         if wtot:
             tcls = "win" if wtot >= 0 else "loss"
-            cells.append(f"<div class='cal-total {tcls}'><span class='cal-pnl {tcls}' "
-                         f"style='margin:0'>{_cal_fmt(wtot, unit_label)}</span></div>")
+            wbar = _goalbar(wtot_d, goal_week, "cal-wbar")
+            wtip = (f" title='Week {wtot_d:+,.0f}$ of ${goal_week:,.0f} goal'"
+                    if goal_week else "")
+            cells.append(f"<div class='cal-total {tcls}'{wtip}><span class='cal-pnl {tcls}' "
+                         f"style='margin:0'>{_cal_fmt(wtot, unit_label)}</span>{wbar}</div>")
         else:
             cells.append("<div class='cal-total'></div>")
     mcls = "win" if mtot >= 0 else "loss"
-    foot = (f"<div class='cal-foot'><span>Month total</span>"
-            f"<b class='cal-pnl {mcls}'>{_cal_fmt(mtot, unit_label)} {unit_label}</b></div>")
+    tot_b = (f"<b class='cal-pnl {mcls}'>{_cal_fmt(mtot, unit_label)} "
+             f"{unit_label}</b>")
+    if goal:
+        pct = max(0.0, min(100.0, goal_now / goal * 100))
+        reached = goal_now >= goal
+        rem = goal - goal_now
+        barcls = "" if goal_now >= 0 else "loss"
+        remcls = "win" if reached else "loss" if goal_now < 0 else ""
+        rem_text = "🎉 Goal reached" if reached else f"${rem:,.0f} to go"
+        foot = (f"<div class='cal-foot'><div class='cal-goal'>"
+                f"<div class='cal-goal-row'><span>Monthly goal</span>"
+                f"<b class='gval'>${goal:,.0f}</b></div>"
+                f"<div class='cal-goal-bar'><i class='{barcls}' "
+                f"style='width:{pct:.0f}%'></i></div>"
+                f"<div class='cal-goal-row'><span>Month total</span>{tot_b}</div>"
+                f"<div class='cal-goal-rem {remcls}'>{rem_text}</div></div></div>")
+    else:
+        foot = f"<div class='cal-foot'><span>Month total</span>{tot_b}</div>"
     return (f"<div class='cal'>"
             f"<div class='cal-grid'>{head}{''.join(cells)}</div>{foot}</div>")
 
@@ -1014,8 +1074,11 @@ def main():
                     cur += 1
                 ss["f_calmonth"] = msel = str(cur)
                 mdf = dp[dp["Day"].dt.to_period("M").astype(str) == msel]
+                month_dollars = float(mdf["sum"].sum()) if len(mdf) else 0.0
                 st.markdown(calendar_html(mdf, usym.strip() or "$", month=msel,
-                                          today=pd.Timestamp.today().date()),
+                                          today=pd.Timestamp.today().date(),
+                                          goal=goal_month, goal_now=month_dollars,
+                                          goal_day=goal_day, goal_week=goal_week),
                             unsafe_allow_html=True)
             with right:
                 hold = f"{ev['avg_hold']:.0f}" if ev["avg_hold"] == ev["avg_hold"] else "—"
