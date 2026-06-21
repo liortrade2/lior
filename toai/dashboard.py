@@ -1136,6 +1136,30 @@ def main():
                 f"{_month_goal_html(mtot_disp, usym.strip() or '$', goal_month, month_dollars)}"
                 f"</div>", unsafe_allow_html=True)
 
+            # Live-watch toggle right under the month label — does the Control
+            # tab's Start/Stop watch without opening ⚙️ Control. on_change only
+            # fires on a real toggle (no spin-restart); default OFF so opening the
+            # dashboard never auto-starts the live watcher.
+            def _toggle_watch():
+                import subprocess
+                import sys
+                wp = ss.get("watch_proc")
+                alive = wp is not None and wp.poll() is None
+                if ss.get("watch_radio") == "▶ Watch ON" and not alive:
+                    ss["watch_proc"] = subprocess.Popen(
+                        [sys.executable, "-c", "from toai.score import watch; watch()"],
+                        cwd=str(PROJECT_ROOT))
+                elif ss.get("watch_radio") == "⏹ Watch OFF" and alive:
+                    wp.terminate()
+                    ss["watch_proc"] = None
+            _wp = ss.get("watch_proc")
+            ss.setdefault("watch_radio", "▶ Watch ON"
+                          if (_wp is not None and _wp.poll() is None) else "⏹ Watch OFF")
+            wrc = st.columns([0.7, 2.7, 5], gap="small")
+            wrc[1].radio("Live watch", ["⏹ Watch OFF", "▶ Watch ON"], horizontal=True,
+                         label_visibility="collapsed", key="watch_radio",
+                         on_change=_toggle_watch)
+
             # ── Below the calendar: KPI cards, then the Evaluation panel ──
             with st.container(key="kpiwrap"):
                 for col, c in zip(st.columns(5, gap="small"), cards):
