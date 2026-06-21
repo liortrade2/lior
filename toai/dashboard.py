@@ -417,6 +417,9 @@ hr { margin: 0.5rem 0; border-color: #e5e7eb; }
 /* Evaluation panel — Edgewonk-style stat rows */
 .evpanel { background: #ffffff; border: 1px solid #eceef1; border-radius: 14px;
   padding: 4px 16px; box-shadow: 0 1px 3px rgba(16,24,40,0.05); }
+/* full-width Evaluation panel (below the calendar): flow stats into 2 columns */
+.evpanel.wide { margin-top: 12px; column-count: 2; column-gap: 32px; }
+.evpanel.wide .evrow { break-inside: avoid; }
 .evrow { display: flex; justify-content: space-between; align-items: center; gap: 8px;
   padding: 6px 0; border-bottom: 1px solid #f1f3f5; font-size: 0.78rem; white-space: nowrap; }
 .evrow:last-child { border-bottom: none; }
@@ -482,8 +485,10 @@ hr { margin: 0.5rem 0; border-color: #e5e7eb; }
   margin-top:10px; padding-top:10px; border-top:1px solid #eef0f3; }
 .cal-foot span { color:#6b7280; font-size:.8rem; font-weight:600; }
 .cal-foot b { font-size:1rem; font-weight:800; margin:0; }
-/* Monthly-goal tracker in the footer: set / now / remaining */
-.cal-goal { width:300px; max-width:62%; }
+/* Monthly-goal tracker — sits in its own row below the calendar, hugging right */
+.cal-goal-below { display:flex; justify-content:flex-end; margin-top:10px; }
+.cal-goal-below .cal-goal { width:340px; max-width:60%; }
+.cal-goal { width:100%; }
 .cal-goal-row { display:flex; justify-content:space-between; align-items:center; padding:1px 0; }
 .cal-goal-row span { color:#6b7280; font-size:.8rem; font-weight:600; }
 .cal-goal-row b { font-size:.95rem; font-weight:800; }
@@ -616,15 +621,14 @@ def _goalbar(actual, target, cls):
 
 
 def calendar_html(mdf, unit_label="$", month=None, today=None,
-                  goal=None, goal_now=0.0, goal_day=None, goal_week=None) -> str:
+                  goal_day=None, goal_week=None) -> str:
     """An Edgewonk-style month grid: each day a tinted tile with a circular
     day-badge, the P&L and trade count; the current day framed; next-month
-    days hatched; a tinted weekly Total column and a month grand-total footer.
-    `month` ('YYYY-MM') pins which month to draw (empty months still render);
-    `today` (a date) frames the current day. `goal`/`goal_day`/`goal_week` are
-    the $ targets: the footer tracks the month vs `goal` (using `goal_now`, the
-    month net in $), each day cell shows a daily-goal bar, and each weekly Total
-    cell a weekly-goal bar."""
+    days hatched; a tinted weekly Total column. `month` ('YYYY-MM') pins which
+    month to draw (empty months still render); `today` (a date) frames the
+    current day. `goal_day`/`goal_week` are the $ targets: each day cell shows a
+    daily-goal bar and each weekly Total cell a weekly-goal bar. The monthly
+    goal/total summary lives in the header row (see `_month_goal_html`)."""
     import calendar
     has_sum = "sum" in getattr(mdf, "columns", [])
     sums = mdf["sum"] if has_sum else mdf["uPnL"]
@@ -642,7 +646,6 @@ def calendar_html(mdf, unit_label="$", month=None, today=None,
                    for d in ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")) \
         + "<div class='cal-dow'>Total</div>"
     cells = []
-    mtot = 0.0
     for wk in weeks:
         wtot = 0.0       # week net in display units
         wtot_d = 0.0     # week net in $ (for the weekly-goal bar)
@@ -671,7 +674,6 @@ def calendar_html(mdf, unit_label="$", month=None, today=None,
                     f"{bar}</a>")
             else:
                 cells.append(f"<div class='cal-cell{tcls}'>{badge}</div>")
-        mtot += wtot
         if wtot:
             tcls = "win" if wtot >= 0 else "loss"
             wbar = _goalbar(wtot_d, goal_week, "cal-wbar")
@@ -681,27 +683,33 @@ def calendar_html(mdf, unit_label="$", month=None, today=None,
                          f"style='margin:0'>{_cal_fmt(wtot, unit_label)}</span>{wbar}</div>")
         else:
             cells.append("<div class='cal-total'></div>")
-    mcls = "win" if mtot >= 0 else "loss"
-    tot_b = (f"<b class='cal-pnl {mcls}'>{_cal_fmt(mtot, unit_label)} "
-             f"{unit_label}</b>")
-    if goal:
-        pct = max(0.0, min(100.0, goal_now / goal * 100))
-        reached = goal_now >= goal
-        rem = goal - goal_now
-        barcls = "" if goal_now >= 0 else "loss"
-        remcls = "win" if reached else "loss" if goal_now < 0 else ""
-        rem_text = "🎉 Goal reached" if reached else f"${rem:,.0f} to go"
-        foot = (f"<div class='cal-foot'><div class='cal-goal'>"
-                f"<div class='cal-goal-row'><span>Monthly goal</span>"
-                f"<b class='gval'>${goal:,.0f}</b></div>"
-                f"<div class='cal-goal-bar'><i class='{barcls}' "
-                f"style='width:{pct:.0f}%'></i></div>"
-                f"<div class='cal-goal-row'><span>Month total</span>{tot_b}</div>"
-                f"<div class='cal-goal-rem {remcls}'>{rem_text}</div></div></div>")
-    else:
-        foot = f"<div class='cal-foot'><span>Month total</span>{tot_b}</div>"
     return (f"<div class='cal'>"
-            f"<div class='cal-grid'>{head}{''.join(cells)}</div>{foot}</div>")
+            f"<div class='cal-grid'>{head}{''.join(cells)}</div></div>")
+
+
+def _month_goal_html(mtot_disp, unit_label, goal, goal_now):
+    """The monthly goal/total summary block — set vs now vs remaining — shown in
+    the calendar header row. `mtot_disp` is the month net in display units;
+    `goal`/`goal_now` are the $ target and the month net in $."""
+    mcls = "win" if mtot_disp >= 0 else "loss"
+    tot_b = (f"<b class='cal-pnl {mcls}'>{_cal_fmt(mtot_disp, unit_label)} "
+             f"{unit_label}</b>")
+    if not goal:
+        return (f"<div class='cal-goal'><div class='cal-goal-row'>"
+                f"<span>Month total</span>{tot_b}</div></div>")
+    pct = max(0.0, min(100.0, goal_now / goal * 100))
+    reached = goal_now >= goal
+    rem = goal - goal_now
+    barcls = "" if goal_now >= 0 else "loss"
+    remcls = "win" if reached else "loss" if goal_now < 0 else ""
+    rem_text = "🎉 Goal reached" if reached else f"${rem:,.0f} to go"
+    return (f"<div class='cal-goal'>"
+            f"<div class='cal-goal-row'><span>Monthly goal</span>"
+            f"<b class='gval'>${goal:,.0f}</b></div>"
+            f"<div class='cal-goal-bar'><i class='{barcls}' "
+            f"style='width:{pct:.0f}%'></i></div>"
+            f"<div class='cal-goal-row'><span>Month total</span>{tot_b}</div>"
+            f"<div class='cal-goal-rem {remcls}'>{rem_text}</div></div>")
 
 
 def _day_detail(st, ex, day_str, u, usym):
@@ -1053,58 +1061,59 @@ def main():
                  if sel is not None else "",
                  "sub": "ALLOW vs all", "sub_color": GREEN},
             ]
-            # Calendar (wide, left) + Evaluation (narrow, hugs the right).
-            left, right = st.columns([3.8, 1.25], gap="medium")
-            with left:
-                dp = daily_pnl(ex)
-                dp["Day"] = pd.to_datetime(dp["Day"])
-                dp["uPnL"] = dp["sum"].apply(u)
-                latest = (dp["Day"].dt.to_period("M").max() if len(dp)
-                          else pd.Timestamp.today().to_period("M"))
-                cur = pd.Period(ss.get("f_calmonth") or str(latest), freq="M")
-                # Edgewonk-style header: title left, ‹ Month › nav right.
-                hc = st.columns([5, 1, 2.6, 1], gap="small", vertical_alignment="center")
-                hc[0].markdown("<div class='cal-cardtitle'>Profit Calendar</div>",
-                               unsafe_allow_html=True)
-                if hc[1].button("‹", key="cal_prev", width='stretch'):
-                    cur -= 1
-                hc[2].markdown(f"<div class='cal-monthlbl'>{cur.strftime('%B %Y')}</div>",
-                               unsafe_allow_html=True)
-                if hc[3].button("›", key="cal_next", width='stretch'):
-                    cur += 1
-                ss["f_calmonth"] = msel = str(cur)
-                mdf = dp[dp["Day"].dt.to_period("M").astype(str) == msel]
-                month_dollars = float(mdf["sum"].sum()) if len(mdf) else 0.0
-                st.markdown(calendar_html(mdf, usym.strip() or "$", month=msel,
-                                          today=pd.Timestamp.today().date(),
-                                          goal=goal_month, goal_now=month_dollars,
-                                          goal_day=goal_day, goal_week=goal_week),
-                            unsafe_allow_html=True)
-            with right:
-                hold = f"{ev['avg_hold']:.0f}" if ev["avg_hold"] == ev["avg_hold"] else "—"
-                streak = (f"{ev['streak']} {'win' if ev['streak_win'] else 'loss'}"
-                          if ev.get("streak") else "—")
-                rows = [
-                    ("Total trades", str(ev["trades"])),
-                    ("Avg profit / day", f"{u(ev['avg_per_day']):,.2f}{usym}"),
-                    ("Biggest winner", f"{u(ev['biggest_win']):,.2f}{usym}"),
-                    ("Biggest loser", f"{u(ev['biggest_loss']):,.2f}{usym}"),
-                    ("Total fees", f"${ev['total_fees']:,.2f}"),
-                    ("Avg hold (min)", hold),
-                    ("Win rate", f"{ev['win_rate']:.0f}%"),
-                    ("Winning / losing days", f"{ev['win_days']} / {ev['loss_days']}"),
-                    ("Trades / day", f"{ev['trades_per_day']:.1f}"),
-                    ("Current streak", streak),
-                ]
-                html = "".join(f"<div class='evrow'><span>{a}</span><b>{b}</b></div>"
-                               for a, b in rows)
-                st.markdown(f"<div class='evpanel'>{html}</div>", unsafe_allow_html=True)
+            # ── Calendar FIRST: full width, at the very top — so shrinking the
+            #    window leaves just the calendar. Everything else sits below. ──
+            dp = daily_pnl(ex)
+            dp["Day"] = pd.to_datetime(dp["Day"])
+            dp["uPnL"] = dp["sum"].apply(u)
+            latest = (dp["Day"].dt.to_period("M").max() if len(dp)
+                      else pd.Timestamp.today().to_period("M"))
+            cur = pd.Period(ss.get("f_calmonth") or str(latest), freq="M")
+            hc = st.columns([0.7, 1.6, 0.7, 8], gap="small",
+                            vertical_alignment="center")
+            if hc[0].button("‹", key="cal_prev", width='stretch'):
+                cur -= 1
+            hc[1].markdown(f"<div class='cal-monthlbl'>{cur.strftime('%B %Y')}</div>",
+                           unsafe_allow_html=True)
+            if hc[2].button("›", key="cal_next", width='stretch'):
+                cur += 1
+            ss["f_calmonth"] = msel = str(cur)
+            mdf = dp[dp["Day"].dt.to_period("M").astype(str) == msel]
+            month_dollars = float(mdf["sum"].sum()) if len(mdf) else 0.0
+            mtot_disp = float(mdf["uPnL"].sum()) if len(mdf) else 0.0
+            st.markdown(calendar_html(mdf, usym.strip() or "$", month=msel,
+                                      today=pd.Timestamp.today().date(),
+                                      goal_day=goal_day, goal_week=goal_week),
+                        unsafe_allow_html=True)
+            # Monthly goal summary — directly below the calendar, hugging right.
+            st.markdown(
+                f"<div class='cal-goal-below'>"
+                f"{_month_goal_html(mtot_disp, usym.strip() or '$', goal_month, month_dollars)}"
+                f"</div>", unsafe_allow_html=True)
 
-            # KPI cards — pulled to the full window width (left edge under the
-            # nav rail, which has ended above this row), flush to the right.
+            # ── Below the calendar: KPI cards, then the Evaluation panel ──
             with st.container(key="kpiwrap"):
                 for col, c in zip(st.columns(5, gap="small"), cards):
                     col.markdown(_kpi_card_one(c), unsafe_allow_html=True)
+
+            hold = f"{ev['avg_hold']:.0f}" if ev["avg_hold"] == ev["avg_hold"] else "—"
+            streak = (f"{ev['streak']} {'win' if ev['streak_win'] else 'loss'}"
+                      if ev.get("streak") else "—")
+            rows = [
+                ("Total trades", str(ev["trades"])),
+                ("Avg profit / day", f"{u(ev['avg_per_day']):,.2f}{usym}"),
+                ("Biggest winner", f"{u(ev['biggest_win']):,.2f}{usym}"),
+                ("Biggest loser", f"{u(ev['biggest_loss']):,.2f}{usym}"),
+                ("Total fees", f"${ev['total_fees']:,.2f}"),
+                ("Avg hold (min)", hold),
+                ("Win rate", f"{ev['win_rate']:.0f}%"),
+                ("Winning / losing days", f"{ev['win_days']} / {ev['loss_days']}"),
+                ("Trades / day", f"{ev['trades_per_day']:.1f}"),
+                ("Current streak", streak),
+            ]
+            html = "".join(f"<div class='evrow'><span>{a}</span><b>{b}</b></div>"
+                           for a, b in rows)
+            st.markdown(f"<div class='evpanel wide'>{html}</div>", unsafe_allow_html=True)
 
 
     # ---- TAB 1: ML edge (works for both sources via the scorecard machinery) ----
