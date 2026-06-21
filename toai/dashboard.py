@@ -870,7 +870,7 @@ def main():
     NAV = ["🏠 Home", "⚙️ Control", "🎯 ML edge", "🔬 Breakdowns", "📅 Calendar",
            "🥅 Goals", "🧪 Simulator", "🕯 Trade explorer", "🤖 AI Coach"]
     # Collapse button: shrinks the rail to icon-only.
-    ss.setdefault("nav_collapsed", False)
+    ss.setdefault("nav_collapsed", True)  # start collapsed (icons only)
     if st.button("»" if ss["nav_collapsed"] else "«  Collapse", key="nav_toggle",
                  width='stretch'):
         ss["nav_collapsed"] = not ss["nav_collapsed"]
