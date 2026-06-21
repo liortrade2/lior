@@ -393,8 +393,11 @@ h2, h3 { font-weight: 700 !important; letter-spacing: -0.3px; color: #1f2937; fo
 [data-baseweb="tab-highlight"] { background-color: #16a34a !important; height: 3px; }
 /* Vertical left-rail navigation — the nav radio (key=toainav) styled as a
    sticky left column of icon items; content sits to its right. */
-.st-key-toainav { position: fixed; left: 12px; top: 14px; width: 176px; z-index: 50;
-  max-height: calc(100vh - 24px); overflow-y: auto; }
+.st-key-nav_toggle { position: fixed; left: 12px; top: 14px; width: 176px; z-index: 51; }
+.st-key-nav_toggle button { width: 100%; border-radius: 8px; border-color: #e9ebef;
+  color: #6b7280; font-weight: 700; min-height: 32px; }
+.st-key-toainav { position: fixed; left: 12px; top: 54px; width: 176px; z-index: 50;
+  max-height: calc(100vh - 66px); overflow-y: auto; }
 .st-key-toainav [role="radiogroup"] { flex-direction: column; gap: 3px; }
 .st-key-toainav [role="radiogroup"] label {
   width: 100%; padding: 8px 12px; border-radius: 8px;
@@ -428,7 +431,16 @@ hr { margin: 0.5rem 0; border-color: #e5e7eb; }
 .kpi-row { display: flex; gap: 10px; margin-top: 12px; width: 100%; }
 .kpi-card { flex: 1 1 0; min-width: 0; background:#fff; border:1px solid #eceef1;
   border-radius:14px; padding:12px 14px; box-shadow:0 1px 3px rgba(16,24,40,.06);
-  display:flex; flex-direction:column; justify-content:center; min-height:96px; }
+  display:flex; flex-direction:column; justify-content:center; min-height:120px; }
+/* equal-height KPI cards — every card fills its column up to the tallest one */
+.st-key-kpiwrap [data-testid="stHorizontalBlock"] { align-items:stretch; }
+.st-key-kpiwrap [data-testid="stColumn"],
+.st-key-kpiwrap [data-testid="stColumn"] > div,
+.st-key-kpiwrap [data-testid="stVerticalBlock"],
+.st-key-kpiwrap [data-testid="stElementContainer"],
+.st-key-kpiwrap [data-testid="stMarkdown"],
+.st-key-kpiwrap [data-testid="stMarkdownContainer"] { height:100%; }
+.st-key-kpiwrap .kpi-card { height:100%; }
 .kpi-label { color:#6b7280; font-size:.82rem; font-weight:600; }
 .kpi-mid { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:4px; }
 .kpi-val { color:#111827; font-size:1.45rem; font-weight:800; letter-spacing:-0.5px; white-space:nowrap; }
@@ -443,10 +455,11 @@ hr { margin: 0.5rem 0; border-color: #e5e7eb; }
 .cal { background:#fff; border:1px solid #eceef1; border-radius:14px; padding:14px 16px;
   box-shadow:0 1px 3px rgba(16,24,40,.05); }
 .cal-cardtitle { font-weight:700; font-size:1.15rem; color:#111827; }
-.cal-monthlbl { font-weight:700; font-size:1rem; color:#111827; text-align:center; }
+.cal-monthlbl { font-weight:700; font-size:1rem; color:#111827; text-align:center;
+  margin-top:10px; }  /* drop "June 2026" onto the Monthly-goal ($3,000) line */
 /* the ‹ › nav buttons in the calendar header row */
 .st-key-cal_prev button, .st-key-cal_next button { border-radius:9px; padding:2px 0;
-  min-height:34px; color:#374151; font-size:1.1rem; }
+  min-height:34px; color:#374151; font-size:1.1rem; margin-top:10px; }
 .cal-grid { display:grid; grid-template-columns:repeat(8,1fr); gap:7px; }
 .cal-dow { font-size:.68rem; color:#9aa3ad; font-weight:600; text-align:center;
   padding-bottom:2px; }
@@ -486,8 +499,8 @@ hr { margin: 0.5rem 0; border-color: #e5e7eb; }
 .cal-foot span { color:#6b7280; font-size:.8rem; font-weight:600; }
 .cal-foot b { font-size:1rem; font-weight:800; margin:0; }
 /* Monthly-goal tracker — sits in its own row below the calendar, hugging right */
-.cal-goal-below { display:flex; justify-content:flex-end; margin-top:10px; }
-.cal-goal-below .cal-goal { width:340px; max-width:60%; }
+.cal-goal-below { display:flex; justify-content:flex-end; margin-top:10px; }  /* top-aligned, 10px from top — matches the nav row */
+.cal-goal-below .cal-goal { width:100%; }  /* fill the column so $-values sit at the calendar's right edge */
 .cal-goal { width:100%; }
 .cal-goal-row { display:flex; justify-content:space-between; align-items:center; padding:1px 0; }
 .cal-goal-row span { color:#6b7280; font-size:.8rem; font-weight:600; }
@@ -702,14 +715,14 @@ def _month_goal_html(mtot_disp, unit_label, goal, goal_now):
     rem = goal - goal_now
     barcls = "" if goal_now >= 0 else "loss"
     remcls = "win" if reached else "loss" if goal_now < 0 else ""
-    rem_text = "🎉 Goal reached" if reached else f"${rem:,.0f} to go"
+    rem_text = "🎉 Goal reached" if reached else f"${rem:,.0f}"
     return (f"<div class='cal-goal'>"
             f"<div class='cal-goal-row'><span>Monthly goal</span>"
             f"<b class='gval'>${goal:,.0f}</b></div>"
             f"<div class='cal-goal-bar'><i class='{barcls}' "
             f"style='width:{pct:.0f}%'></i></div>"
-            f"<div class='cal-goal-row'><span>Month total</span>{tot_b}</div>"
-            f"<div class='cal-goal-rem {remcls}'>{rem_text}</div></div>")
+            f"<div class='cal-goal-row'><span>Month total</span>"
+            f"<b class='cal-goal-rem {remcls}'>{rem_text}</b></div></div>")
 
 
 def _day_detail(st, ex, day_str, u, usym):
@@ -854,7 +867,27 @@ def main():
 
     NAV = ["🏠 Home", "⚙️ Control", "🎯 ML edge", "🔬 Breakdowns", "📅 Calendar",
            "🥅 Goals", "🧪 Simulator", "🕯 Trade explorer", "🤖 AI Coach"]
-    view = st.radio("Navigation", NAV, label_visibility="collapsed", key="toainav")
+    # Collapse button: shrinks the rail to icon-only.
+    ss.setdefault("nav_collapsed", False)
+    if st.button("»" if ss["nav_collapsed"] else "«  Collapse", key="nav_toggle",
+                 width='stretch'):
+        ss["nav_collapsed"] = not ss["nav_collapsed"]
+        st.rerun()
+    nav_collapsed = ss["nav_collapsed"]
+    view = st.radio("Navigation", NAV, label_visibility="collapsed", key="toainav",
+                    format_func=(lambda o: o.split(" ", 1)[0]) if nav_collapsed
+                    else (lambda o: o))
+    if nav_collapsed:
+        st.markdown(
+            "<style>"
+            ".st-key-nav_toggle, .st-key-toainav { width:52px !important; }"
+            ".st-key-toainav [role='radiogroup'] label { padding:9px 4px !important;"
+            " justify-content:center; }"
+            ".st-key-toainav [role='radiogroup'] label p { font-size:1.2rem !important; }"
+            ".block-container { padding-left:72px !important; }"
+            ".st-key-kpiwrap [data-testid='stHorizontalBlock'],"
+            ".st-key-botbar [data-testid='stExpander'] { margin-left:-60px !important; }"
+            "</style>", unsafe_allow_html=True)
 
     # ---- CONTROL: everything the Control Panel does, in the dashboard ----
     if view == "⚙️ Control":
@@ -1062,22 +1095,16 @@ def main():
                  "sub": "ALLOW vs all", "sub_color": GREEN},
             ]
             # ── Calendar FIRST: full width, at the very top — so shrinking the
-            #    window leaves just the calendar. Everything else sits below. ──
+            #    window leaves just the calendar. Nav + goal sit on one row below. ──
             dp = daily_pnl(ex)
             dp["Day"] = pd.to_datetime(dp["Day"])
             dp["uPnL"] = dp["sum"].apply(u)
             latest = (dp["Day"].dt.to_period("M").max() if len(dp)
                       else pd.Timestamp.today().to_period("M"))
-            cur = pd.Period(ss.get("f_calmonth") or str(latest), freq="M")
-            hc = st.columns([0.7, 1.6, 0.7, 8], gap="small",
-                            vertical_alignment="center")
-            if hc[0].button("‹", key="cal_prev", width='stretch'):
-                cur -= 1
-            hc[1].markdown(f"<div class='cal-monthlbl'>{cur.strftime('%B %Y')}</div>",
-                           unsafe_allow_html=True)
-            if hc[2].button("›", key="cal_next", width='stretch'):
-                cur += 1
-            ss["f_calmonth"] = msel = str(cur)
+            if not ss.get("f_calmonth"):
+                ss["f_calmonth"] = str(latest)
+            cur = pd.Period(ss["f_calmonth"], freq="M")
+            msel = str(cur)
             mdf = dp[dp["Day"].dt.to_period("M").astype(str) == msel]
             month_dollars = float(mdf["sum"].sum()) if len(mdf) else 0.0
             mtot_disp = float(mdf["uPnL"].sum()) if len(mdf) else 0.0
@@ -1085,8 +1112,24 @@ def main():
                                       today=pd.Timestamp.today().date(),
                                       goal_day=goal_day, goal_week=goal_week),
                         unsafe_allow_html=True)
-            # Monthly goal summary — directly below the calendar, hugging right.
-            st.markdown(
+
+            # Below the calendar: ‹ Month › nav on the left, monthly-goal block on
+            # the right — aligned on the same (Monthly goal $…) row. on_click
+            # callbacks fire before the rerun body, so the calendar above stays
+            # in sync even though the buttons render after it.
+            def _shift_month(delta):
+                cm = ss.get("f_calmonth")
+                if cm:
+                    ss["f_calmonth"] = str(pd.Period(cm, "M") + delta)
+            gc = st.columns([0.7, 1.7, 0.7, 0.3, 5], gap="small",
+                            vertical_alignment="top")
+            gc[0].button("‹", key="cal_prev", on_click=_shift_month, args=(-1,),
+                         width='stretch')
+            gc[1].markdown(f"<div class='cal-monthlbl'>{cur.strftime('%B %Y')}</div>",
+                           unsafe_allow_html=True)
+            gc[2].button("›", key="cal_next", on_click=_shift_month, args=(1,),
+                         width='stretch')
+            gc[4].markdown(
                 f"<div class='cal-goal-below'>"
                 f"{_month_goal_html(mtot_disp, usym.strip() or '$', goal_month, month_dollars)}"
                 f"</div>", unsafe_allow_html=True)
