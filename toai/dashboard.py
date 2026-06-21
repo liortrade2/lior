@@ -366,7 +366,9 @@ html, body, [class*="css"], .stMarkdown, button, input, select, textarea, .stSli
   font-family: 'Manrope', -apple-system, system-ui, sans-serif !important;
 }
 .stApp { background: #f6f8fa; }
-.block-container { padding-top: 0.4rem; padding-bottom: 0.6rem; padding-left: 196px; padding-right: 8px; max-width: none; }
+.block-container { padding-top: 16px; padding-bottom: 0.6rem; padding-left: 196px; padding-right: 8px; max-width: none; }
+/* CSS-injection markdowns must not take vertical space (else they push the calendar down) */
+[data-testid="stElementContainer"]:has(style) { display: none !important; }
 section[data-testid="stSidebar"] { display: none; }
 /* KPI strip + bottom filters sit BELOW the nav rail, so reclaim the left
    gutter: pull them left to the window edge and keep them flush right. */
@@ -393,11 +395,11 @@ h2, h3 { font-weight: 700 !important; letter-spacing: -0.3px; color: #1f2937; fo
 [data-baseweb="tab-highlight"] { background-color: #16a34a !important; height: 3px; }
 /* Vertical left-rail navigation — the nav radio (key=toainav) styled as a
    sticky left column of icon items; content sits to its right. */
-.st-key-nav_toggle { position: fixed; left: 12px; top: 14px; width: 176px; z-index: 51; }
+.st-key-nav_toggle { position: fixed; left: 12px; top: 16px; width: 176px; z-index: 51; }
 .st-key-nav_toggle button { width: 100%; border-radius: 8px; border-color: #e9ebef;
   color: #6b7280; font-weight: 700; min-height: 32px; }
-.st-key-toainav { position: fixed; left: 12px; top: 54px; width: 176px; z-index: 50;
-  max-height: calc(100vh - 66px); overflow-y: auto; }
+.st-key-toainav { position: fixed; left: 12px; top: 56px; width: 176px; z-index: 50;
+  max-height: calc(100vh - 68px); overflow-y: auto; }
 .st-key-toainav [role="radiogroup"] { flex-direction: column; gap: 3px; }
 .st-key-toainav [role="radiogroup"] label {
   width: 100%; padding: 8px 12px; border-radius: 8px;
