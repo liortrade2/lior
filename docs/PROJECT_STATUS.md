@@ -7,7 +7,7 @@
 
 ## 🆕 סשן 2026-06-20 — נבנה דאשבורד אנליטיקה מקומי (📈 TOAI_Analytics)
 
-**הכל נדחף** ל-`claude/magical-dirac-1yd0d4` (HEAD ≈ `731e3f6`, 30 קומיטים).
+**הכל נדחף** ל-`claude/magical-dirac-1yd0d4` (HEAD = `f84cf16`, 31 קומיטים בסשן).
 
 ### מה נבנה
 **`toai/dashboard.py`** — דאשבורד **Streamlit** מקומי, **ML-aware**, "TradesViz/Edgewonk אצלנו".

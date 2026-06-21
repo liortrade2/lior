@@ -160,6 +160,9 @@ def kpis(ex: pd.DataFrame) -> dict:
         "profit_factor": float(gross_w / gross_l) if gross_l > 0 else None,
         "avg_win": float(wins.mean()) if len(wins) else 0.0,
         "avg_loss": float(losses.mean()) if len(losses) else 0.0,
+        "n_win": int((p > 0).sum()),
+        "n_loss": int((p < 0).sum()),
+        "n_be": int((p == 0).sum()),
     }
 
 
@@ -428,24 +431,48 @@ hr { margin: 0.5rem 0; border-color: #e5e7eb; }
 .kpi-val { color:#111827; font-size:1.45rem; font-weight:800; letter-spacing:-0.5px; white-space:nowrap; }
 .kpi-vis { flex-shrink:0; line-height:0; }
 .kpi-sub { font-size:.72rem; font-weight:600; margin-top:4px; color:#6b7280; }
-/* Profit calendar (HTML grid) */
+.kpi-sub .pill { display:inline-block; min-width:16px; text-align:center; padding:1px 7px;
+  border-radius:8px; font-weight:700; font-size:.7rem; margin-right:4px; }
+.kpi-sub .pill.win { background:#e8f6ee; color:#16a34a; }
+.kpi-sub .pill.be { background:#f1f3f5; color:#6b7280; }
+.kpi-sub .pill.loss { background:#fdeaea; color:#dc2626; }
+/* Profit calendar (HTML grid) — Edgewonk-style */
 .cal { background:#fff; border:1px solid #eceef1; border-radius:14px; padding:14px 16px;
   box-shadow:0 1px 3px rgba(16,24,40,.05); }
-.cal-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
-.cal-title { font-weight:700; font-size:1.05rem; color:#111827; }
-.cal-grid { display:grid; grid-template-columns:repeat(7,1fr) 0.7fr; gap:6px; }
-.cal-dow { font-size:.68rem; color:#9aa3ad; font-weight:600; text-align:center; }
-.cal-cell { position:relative; min-height:58px; border-radius:10px; background:#f3f5f8;
-  border:1px solid #eef0f3; padding:5px 8px; }
-.cal-cell.empty { background:transparent; border:none; }
+.cal-cardtitle { font-weight:700; font-size:1.15rem; color:#111827; }
+.cal-monthlbl { font-weight:700; font-size:1rem; color:#111827; text-align:center; }
+/* the ‹ › nav buttons in the calendar header row */
+.st-key-cal_prev button, .st-key-cal_next button { border-radius:9px; padding:2px 0;
+  min-height:34px; color:#374151; font-size:1.1rem; }
+.cal-grid { display:grid; grid-template-columns:repeat(8,1fr); gap:7px; }
+.cal-dow { font-size:.68rem; color:#9aa3ad; font-weight:600; text-align:center;
+  padding-bottom:2px; }
+.cal-cell { position:relative; min-height:74px; border-radius:12px; background:#f4f7fe;
+  border:1px solid #eaf0fb; padding:6px 9px; }
 .cal-cell.win { background:#e8f6ee; border-color:#cdebd8; }
 .cal-cell.loss { background:#fdeaea; border-color:#f6cccc; }
-.cal-day { position:absolute; top:5px; right:8px; font-size:.7rem; color:#9aa3ad; font-weight:600; }
-.cal-pnl { font-size:.82rem; font-weight:800; margin-top:20px; }
+/* clickable trade days → open the day journal */
+.cal-cell.link { text-decoration:none; color:inherit; cursor:pointer; display:block;
+  transition:box-shadow .12s ease, transform .12s ease; }
+.cal-cell.link:hover { box-shadow:0 5px 14px rgba(16,24,40,.16); transform:translateY(-2px); }
+.cal-cell.out { background:repeating-linear-gradient(-45deg,#fbfcfe,#fbfcfe 5px,
+  #eef1f6 5px,#eef1f6 10px); border-color:#eef1f6; }
+.cal-cell.today { border:2px solid #111827; }
+.cal-daynum { position:absolute; top:6px; right:6px; min-width:22px; height:22px; padding:0 5px;
+  border-radius:11px; background:#ffffff; color:#6b7280; font-size:.7rem; font-weight:700;
+  display:flex; align-items:center; justify-content:center; box-shadow:0 1px 1px rgba(16,24,40,.05); }
+.cal-cell.out .cal-daynum { background:transparent; box-shadow:none; color:#b9c0c9; }
+.cal-pnl { font-size:.9rem; font-weight:800; margin-top:24px; }
 .cal-pnl.win { color:#16a34a; } .cal-pnl.loss { color:#dc2626; }
-.cal-n { font-size:.64rem; color:#6b7280; }
-.cal-total { background:#fafbfc; border:1px dashed #e5e7eb; border-radius:10px;
+.cal-n { font-size:.66rem; color:#6b7280; }
+.cal-total { border-radius:12px; background:#f8fafc; border:1px solid #eef0f3;
   display:flex; align-items:center; justify-content:center; }
+.cal-total.win { background:#e8f6ee; border-color:#cdebd8; }
+.cal-total.loss { background:#fdeaea; border-color:#f6cccc; }
+.cal-foot { display:flex; justify-content:flex-end; align-items:center; gap:10px;
+  margin-top:10px; padding-top:10px; border-top:1px solid #eef0f3; }
+.cal-foot span { color:#6b7280; font-size:.8rem; font-weight:600; }
+.cal-foot b { font-size:1rem; font-weight:800; margin:0; }
 </style>
 """
 
@@ -468,20 +495,26 @@ def _register_plotly_theme(go, pio):
 
 
 # --- tiny inline-SVG widgets for the KPI cards (the Edgewonk mini-visuals) --- #
-def _spark_svg(vals, color="#16a34a", w=92, h=34):
+def _spark_svg(vals, color="#16a34a", w=92, h=34, fill=True):
     vals = [v for v in vals if v == v]
     if len(vals) < 2:
         return ""
     lo, hi = min(vals), max(vals)
     rng = (hi - lo) or 1
     n = len(vals)
-    pts = " ".join(f"{i/(n-1)*w:.1f},{h-(v-lo)/rng*h:.1f}" for i, v in enumerate(vals))
-    return (f'<svg width="{w}" height="{h}" viewBox="0 0 {w} {h}"><polyline points="{pts}" '
-            f'fill="none" stroke="{color}" stroke-width="2" stroke-linejoin="round" '
-            f'stroke-linecap="round"/></svg>')
+    pts = [(i / (n - 1) * w, h - (v - lo) / rng * h) for i, v in enumerate(vals)]
+    line = " ".join(f"{x:.1f},{y:.1f}" for x, y in pts)
+    # Edgewonk-style filled area under the curve, tinted by direction.
+    area = (f'<polygon points="0,{h:.1f} {line} {w:.1f},{h:.1f}" '
+            f'fill="{color}" fill-opacity="0.12"/>') if fill else ""
+    return (f'<svg width="{w}" height="{h}" viewBox="0 0 {w} {h}">{area}'
+            f'<polyline points="{line}" fill="none" stroke="{color}" stroke-width="2" '
+            f'stroke-linejoin="round" stroke-linecap="round"/></svg>')
 
 
 def _gauge_svg(pct, w=66, h=40):
+    """Half-circle gauge: green over the winning fraction, red over the rest
+    (Edgewonk-style), instead of green-over-grey."""
     import math
     r, cx, cy = 27, w / 2, h - 3
     def pt(frac):
@@ -490,9 +523,38 @@ def _gauge_svg(pct, w=66, h=40):
     x0, y0 = pt(0); x1, y1 = pt(1); xp, yp = pt(pct / 100)
     return (f'<svg width="{w}" height="{h}" viewBox="0 0 {w} {h}">'
             f'<path d="M{x0:.1f},{y0:.1f} A{r},{r} 0 0 1 {x1:.1f},{y1:.1f}" fill="none" '
-            f'stroke="#e5e7eb" stroke-width="6" stroke-linecap="round"/>'
+            f'stroke="#ef4444" stroke-width="6" stroke-linecap="round"/>'
             f'<path d="M{x0:.1f},{y0:.1f} A{r},{r} 0 0 1 {xp:.1f},{yp:.1f}" fill="none" '
             f'stroke="#16a34a" stroke-width="6" stroke-linecap="round"/></svg>')
+
+
+def _ring_svg(pct, color="#16a34a", w=46, h=46):
+    """A donut ring filled to `pct` (0-100) — mirrors Edgewonk's score ring."""
+    import math
+    r = 18.0
+    cx = cy = w / 2
+    circ = 2 * math.pi * r
+    dash = circ * max(0.0, min(1.0, pct / 100))
+    return (f'<svg width="{w}" height="{h}" viewBox="0 0 {w} {h}">'
+            f'<circle cx="{cx}" cy="{cy}" r="{r}" fill="none" stroke="#e5e7eb" stroke-width="5"/>'
+            f'<circle cx="{cx}" cy="{cy}" r="{r}" fill="none" stroke="{color}" stroke-width="5" '
+            f'stroke-linecap="round" stroke-dasharray="{dash:.1f} {circ:.1f}" '
+            f'transform="rotate(-90 {cx} {cy})"/></svg>')
+
+
+def _pfbar_svg(pf, w=92, h=14):
+    """A scale with breakeven (1.0) at center and a marker at the profit factor —
+    green right of center when PF>1, red when below."""
+    if pf is None:
+        return ""
+    x = max(0.0, min(2.0, pf)) / 2 * w
+    col = "#16a34a" if pf >= 1 else "#ef4444"
+    cx, mid = w / 2, h / 2
+    return (f'<svg width="{w}" height="{h}" viewBox="0 0 {w} {h}">'
+            f'<line x1="0" y1="{mid}" x2="{w}" y2="{mid}" stroke="#e5e7eb" '
+            f'stroke-width="3" stroke-linecap="round"/>'
+            f'<line x1="{cx}" y1="2" x2="{cx}" y2="{h-2}" stroke="#9aa3ad" stroke-width="1.5"/>'
+            f'<circle cx="{x:.1f}" cy="{mid}" r="4.5" fill="{col}"/></svg>')
 
 
 def _splitbar_svg(win, loss, w=92, h=9):
@@ -518,47 +580,111 @@ def kpi_cards_html(cards) -> str:
     return f'<div class="kpi-row">{"".join(_kpi_card_one(c) for c in cards)}</div>'
 
 
-def calendar_html(mdf, unit_label="$") -> str:
-    """An Edgewonk-style month grid: rounded day tiles, trade-days tinted
-    green/red with the P&L and trade count, plus a weekly Total column."""
+def _cal_fmt(v, unit_label):
+    """Format a calendar P&L value. Dollars round to whole; points/ticks keep
+    two decimals so a real +0.78 pts never shows as a misleading +1."""
+    return f"{v:+,.0f}" if unit_label == "$" else f"{v:+,.2f}"
+
+
+def calendar_html(mdf, unit_label="$", month=None, today=None) -> str:
+    """An Edgewonk-style month grid: each day a tinted tile with a circular
+    day-badge, the P&L and trade count; the current day framed; next-month
+    days hatched; a tinted weekly Total column and a month grand-total footer.
+    `month` ('YYYY-MM') pins which month to draw (empty months still render);
+    `today` (a date) frames the current day."""
     import calendar
     m = {pd.Timestamp(d).date(): (p, n)
          for d, p, n in zip(mdf["Day"], mdf["uPnL"], mdf["count"])}
-    if not m:
+    if month:
+        yr, mo = (int(x) for x in str(month).split("-")[:2])
+    elif m:
+        any_d = next(iter(m))
+        yr, mo = any_d.year, any_d.month
+    else:
         return "<div class='cal'>No trades this month.</div>"
-    any_d = next(iter(m))
-    weeks = calendar.Calendar(firstweekday=0).monthdatescalendar(any_d.year, any_d.month)
+    weeks = calendar.Calendar(firstweekday=0).monthdatescalendar(yr, mo)
     head = "".join(f"<div class='cal-dow'>{d}</div>"
                    for d in ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")) \
         + "<div class='cal-dow'>Total</div>"
     cells = []
+    mtot = 0.0
     for wk in weeks:
         wtot = 0.0
         for day in wk:
-            if day.month != any_d.month:
-                cells.append("<div class='cal-cell empty'></div>")
+            badge = f"<span class='cal-daynum'>{day.day}</span>"
+            if day.month != mo:
+                # Day spilling in from the adjacent month — hatched, muted.
+                cells.append(f"<div class='cal-cell out'>{badge}</div>")
                 continue
+            tcls = " today" if today and day == today else ""
             info = m.get(day)
             if info:
                 p, n = info
                 wtot += p
                 cls = "win" if p >= 0 else "loss"
+                # Trade days are links → ?day=YYYY-MM-DD opens that day's journal.
                 cells.append(
-                    f"<div class='cal-cell {cls}'><div class='cal-day'>{day.day}</div>"
-                    f"<div class='cal-pnl {cls}'>{p:+.0f}</div>"
-                    f"<div class='cal-n'>{int(n)} trade{'s' if n != 1 else ''}</div></div>")
+                    f"<a class='cal-cell link {cls}{tcls}' "
+                    f"href='?day={day.isoformat()}' target='_self'>{badge}"
+                    f"<div class='cal-pnl {cls}'>{_cal_fmt(p, unit_label)}</div>"
+                    f"<div class='cal-n'>{int(n)} trade{'s' if n != 1 else ''}</div></a>")
             else:
-                cells.append(f"<div class='cal-cell'><div class='cal-day'>{day.day}</div></div>")
+                cells.append(f"<div class='cal-cell{tcls}'>{badge}</div>")
+        mtot += wtot
         if wtot:
             tcls = "win" if wtot >= 0 else "loss"
-            cells.append(f"<div class='cal-total'><span class='cal-pnl {tcls}' "
-                         f"style='margin:0'>{wtot:+.0f}</span></div>")
+            cells.append(f"<div class='cal-total {tcls}'><span class='cal-pnl {tcls}' "
+                         f"style='margin:0'>{_cal_fmt(wtot, unit_label)}</span></div>")
         else:
             cells.append("<div class='cal-total'></div>")
-    title = pd.Timestamp(any_d).strftime("%B %Y")
-    return (f"<div class='cal'><div class='cal-head'><div class='cal-title'>{title}</div>"
-            f"<div class='cal-dow'>in {unit_label}</div></div>"
-            f"<div class='cal-grid'>{head}{''.join(cells)}</div></div>")
+    mcls = "win" if mtot >= 0 else "loss"
+    foot = (f"<div class='cal-foot'><span>Month total</span>"
+            f"<b class='cal-pnl {mcls}'>{_cal_fmt(mtot, unit_label)} {unit_label}</b></div>")
+    return (f"<div class='cal'>"
+            f"<div class='cal-grid'>{head}{''.join(cells)}</div>{foot}</div>")
+
+
+def _day_detail(st, ex, day_str, u, usym):
+    """The per-day 'journal' panel shown when a calendar day is clicked
+    (?day=YYYY-MM-DD) — a quick summary plus that day's individual trades."""
+    try:
+        d0 = pd.Timestamp(day_str).date()
+    except (ValueError, TypeError):
+        st.query_params.clear()
+        return
+    sub = ex[ex["Day"] == d0].copy()
+    hc = st.columns([6, 2], vertical_alignment="center")
+    hc[0].markdown(f"<div class='cal-cardtitle'>📋 Trades on "
+                   f"{d0:%A, %B} {d0.day}, {d0.year}</div>", unsafe_allow_html=True)
+    if hc[1].button("‹ Back to month", key="day_back", width='stretch'):
+        st.query_params.clear()
+        st.rerun()
+    if sub.empty:
+        st.info("No trades on this day.")
+        st.divider()
+        return
+    p = pd.to_numeric(sub["Profit"], errors="coerce").fillna(0)
+    mc = st.columns(4)
+    mc[0].metric("Day net", f"{u(p.sum()):,.2f}{usym}")
+    mc[1].metric("Trades", str(len(p)))
+    mc[2].metric("Win rate", f"{(p > 0).mean() * 100:.0f}%")
+    mc[3].metric("Best / worst", f"{u(p.max()):+.1f} / {u(p.min()):+.1f}{usym}")
+    unit = usym.strip() or "$"
+    disp = pd.DataFrame({
+        "Entry": sub["EntryTime"].dt.strftime("%H:%M:%S"),
+        "Exit": pd.to_datetime(sub["ExitTime"], errors="coerce").dt.strftime("%H:%M:%S"),
+        "Dir": sub.get("Direction"),
+        "Qty": sub.get("Qty"),
+        "Entry px": sub.get("EntryPrice"),
+        "Exit px": sub.get("ExitPrice"),
+        f"P&L ({unit})": p.apply(u).round(2),
+        "MAE": pd.to_numeric(sub.get("MAE"), errors="coerce"),
+        "MFE": pd.to_numeric(sub.get("MFE"), errors="coerce"),
+        "Score": sub.get("Score"),
+        "Verdict": sub.get("Verdict"),
+    })
+    st.dataframe(disp, width='stretch', hide_index=True)
+    st.divider()
 
 
 # --------------------------------------------------------------------------- #
@@ -829,27 +955,42 @@ def main():
             st.info("No realized fills yet — the ML edge tab still works on the "
                     "Walk-forward backtest.")
         else:
+            # Clicking a calendar day sets ?day=… → show that day's journal first.
+            qp_day = st.query_params.get("day")
+            if qp_day:
+                _day_detail(st, ex, qp_day, u, usym)
             ev = evaluation(ex)
-            ml_edge = None
+            ml_edge = sel = None
             if scored is not None and len(scored):
                 _sc = scorecard.scorecard_from_scored(
                     scored, threshold, inst, out_of_sample=oos,
                     realized=(source == "Realized fills"))
-                ml_edge = _sc.edge_per_trade if _sc else None
+                if _sc:
+                    ml_edge = _sc.edge_per_trade
+                    sel = _sc.selectivity
             cum = (pd.to_numeric(ex["Profit"], errors="coerce").fillna(0)
                    .cumsum().apply(u).tolist())
+            payoff = abs(k["avg_win"] / k["avg_loss"]) if k["avg_loss"] else 0.0
             cards = [
                 {"label": "Net P&L", "val": f"{u(k['net']):,.2f}{usym}",
                  "visual": _spark_svg(cum, GREEN if k["net"] >= 0 else RED)},
                 {"label": "Win rate", "val": f"{k['win_rate']:.0f}%",
-                 "visual": _gauge_svg(k["win_rate"])},
+                 "visual": _gauge_svg(k["win_rate"]),
+                 "sub": (f"<span class='pill win'>{k['n_win']}</span>"
+                         f"<span class='pill be'>{k['n_be']}</span>"
+                         f"<span class='pill loss'>{k['n_loss']}</span>")},
                 {"label": "Avg / trade", "val": f"{u(k['expectancy']):,.2f}{usym}",
                  "visual": _splitbar_svg(k["avg_win"], k["avg_loss"]),
-                 "sub": f"win {u(k['avg_win']):.1f} · loss {u(k['avg_loss']):.1f}"},
+                 "sub": (f"<b style='color:{GREEN}'>{u(k['avg_win']):+.1f}</b> · "
+                         f"<b style='color:{RED}'>{u(k['avg_loss']):+.1f}</b> · "
+                         f"{payoff:.2f}:1")},
                 {"label": "Profit factor",
-                 "val": f"{k['profit_factor']:.2f}" if k["profit_factor"] else "—"},
+                 "val": f"{k['profit_factor']:.2f}" if k["profit_factor"] else "—",
+                 "visual": _pfbar_svg(k["profit_factor"])},
                 {"label": "ML edge / trade",
                  "val": f"{u(ml_edge):+.2f}{usym}" if ml_edge is not None else "—",
+                 "visual": _ring_svg(sel, GREEN if (ml_edge or 0) >= 0 else RED)
+                 if sel is not None else "",
                  "sub": "ALLOW vs all", "sub_color": GREEN},
             ]
             # Calendar (wide, left) + Evaluation (narrow, hugs the right).
@@ -858,9 +999,23 @@ def main():
                 dp = daily_pnl(ex)
                 dp["Day"] = pd.to_datetime(dp["Day"])
                 dp["uPnL"] = dp["sum"].apply(u)
-                msel = dp["Day"].dt.to_period("M").astype(str).max()
+                latest = (dp["Day"].dt.to_period("M").max() if len(dp)
+                          else pd.Timestamp.today().to_period("M"))
+                cur = pd.Period(ss.get("f_calmonth") or str(latest), freq="M")
+                # Edgewonk-style header: title left, ‹ Month › nav right.
+                hc = st.columns([5, 1, 2.6, 1], gap="small", vertical_alignment="center")
+                hc[0].markdown("<div class='cal-cardtitle'>Profit Calendar</div>",
+                               unsafe_allow_html=True)
+                if hc[1].button("‹", key="cal_prev", width='stretch'):
+                    cur -= 1
+                hc[2].markdown(f"<div class='cal-monthlbl'>{cur.strftime('%B %Y')}</div>",
+                               unsafe_allow_html=True)
+                if hc[3].button("›", key="cal_next", width='stretch'):
+                    cur += 1
+                ss["f_calmonth"] = msel = str(cur)
                 mdf = dp[dp["Day"].dt.to_period("M").astype(str) == msel]
-                st.markdown(calendar_html(mdf, usym.strip() or "$"),
+                st.markdown(calendar_html(mdf, usym.strip() or "$", month=msel,
+                                          today=pd.Timestamp.today().date()),
                             unsafe_allow_html=True)
             with right:
                 hold = f"{ev['avg_hold']:.0f}" if ev["avg_hold"] == ev["avg_hold"] else "—"
