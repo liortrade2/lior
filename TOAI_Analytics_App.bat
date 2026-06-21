@@ -39,8 +39,8 @@ if not exist "%CHROME%" set "CHROME=%ProgramFiles(x86)%\Google\Chrome\Applicatio
 if not exist "%CHROME%" set "CHROME=%LocalAppData%\Google\Chrome\Application\chrome.exe"
 
 if exist "%CHROME%" (
-  start "" "%CHROME%" --app=%URL% --start-maximized
+  start "" "%CHROME%" --app=%URL% --window-size=1071,589
 ) else (
-  start "" "%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe" --app=%URL% --start-maximized
+  start "" "%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe" --app=%URL% --window-size=1071,589
 )
 exit /b
