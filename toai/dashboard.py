@@ -459,10 +459,10 @@ hr { margin: 0.5rem 0; border-color: #e5e7eb; }
 .cal-cardtitle { font-weight:700; font-size:1.15rem; color:#111827; }
 .cal-monthlbl { font-weight:700; font-size:1rem; color:#111827; text-align:center;
   margin-top:10px; }  /* drop "June 2026" onto the Monthly-goal ($3,000) line */
-/* live-watch radio centered under the month label */
-.st-key-watch_radio [data-testid="stWidgetLabel"] { justify-content:center; text-align:center; }
-.st-key-watch_radio [data-testid="stWidgetLabel"] p { font-size:.72rem; color:#6b7280; }
-.st-key-watch_radio [role="radiogroup"] { justify-content:center; gap:10px; }
+/* live-watch control row — status text + Off/On radio on a single line */
+.watch-status { font-size:.74rem; color:#6b7280; font-weight:600; white-space:nowrap; }
+.st-key-watch_radio [role="radiogroup"] { gap:12px; }
+.st-key-watch_radio [role="radiogroup"] label p { font-size:.82rem; }
 /* the ‹ › nav buttons in the calendar header row */
 .st-key-cal_prev button, .st-key-cal_next button { border-radius:9px; padding:2px 0;
   min-height:34px; color:#374151; font-size:1.1rem; margin-top:10px; }
@@ -1127,23 +1127,10 @@ def main():
                 cm = ss.get("f_calmonth")
                 if cm:
                     ss["f_calmonth"] = str(pd.Period(cm, "M") + delta)
-            gc = st.columns([0.7, 1.7, 0.7, 0.3, 5], gap="small",
-                            vertical_alignment="top")
-            gc[0].button("‹", key="cal_prev", on_click=_shift_month, args=(-1,),
-                         width='stretch')
-            gc[1].markdown(f"<div class='cal-monthlbl'>{cur.strftime('%B %Y')}</div>",
-                           unsafe_allow_html=True)
-            gc[2].button("›", key="cal_next", on_click=_shift_month, args=(1,),
-                         width='stretch')
-            gc[4].markdown(
-                f"<div class='cal-goal-below'>"
-                f"{_month_goal_html(mtot_disp, usym.strip() or '$', goal_month, month_dollars)}"
-                f"</div>", unsafe_allow_html=True)
 
-            # Live-watch toggle right under the month label — does the Control
-            # tab's Start/Stop watch without opening ⚙️ Control. on_change only
-            # fires on a real toggle (no spin-restart); default OFF so opening the
-            # dashboard never auto-starts the live watcher.
+            # Live-watch toggle — does the Control tab's Start/Stop watch without
+            # opening ⚙️ Control. on_change only fires on a real toggle (no
+            # spin-restart); default OFF so opening the dashboard never auto-starts.
             def _toggle_watch():
                 import subprocess
                 import sys
@@ -1160,10 +1147,31 @@ def main():
             _alive = _wp is not None and _wp.poll() is None
             if ss.get("watch_radio") not in ("⏹ Off", "▶ On"):
                 ss["watch_radio"] = "▶ On" if _alive else "⏹ Off"
-            wrc = st.columns([0.7, 1.7, 0.7, 0.3, 5], gap="small")
-            wrc[1].radio("🟢 watch running" if _alive else "⚪ watch stopped",
-                         ["⏹ Off", "▶ On"], horizontal=True, key="watch_radio",
-                         on_change=_toggle_watch)
+
+            # Left column: ‹ Month › nav on top (aligned with Monthly goal), and the
+            # live-watch control on ONE line below (aligned with Month total).
+            # Right column: the monthly-goal block.
+            navcol, goalcol = st.columns([3.4, 5], gap="small", vertical_alignment="top")
+            with navcol:
+                nc = st.columns([0.9, 2.0, 0.9], gap="small", vertical_alignment="center")
+                nc[0].button("‹", key="cal_prev", on_click=_shift_month, args=(-1,),
+                             width='stretch')
+                nc[1].markdown(f"<div class='cal-monthlbl'>{cur.strftime('%B %Y')}</div>",
+                               unsafe_allow_html=True)
+                nc[2].button("›", key="cal_next", on_click=_shift_month, args=(1,),
+                             width='stretch')
+                wc = st.columns([1.5, 1.7], gap="small", vertical_alignment="center")
+                wc[0].markdown(
+                    f"<div class='watch-status'>"
+                    f"{'🟢 watch running' if _alive else '⚪ watch stopped'}</div>",
+                    unsafe_allow_html=True)
+                wc[1].radio("watch", ["⏹ Off", "▶ On"], horizontal=True,
+                            label_visibility="collapsed", key="watch_radio",
+                            on_change=_toggle_watch)
+            goalcol.markdown(
+                f"<div class='cal-goal-below'>"
+                f"{_month_goal_html(mtot_disp, usym.strip() or '$', goal_month, month_dollars)}"
+                f"</div>", unsafe_allow_html=True)
 
             # ── Below the calendar: KPI cards, then the Evaluation panel ──
             with st.container(key="kpiwrap"):
