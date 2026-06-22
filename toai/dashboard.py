@@ -48,12 +48,25 @@ def load_realized(instrument) -> pd.DataFrame:
     to the journal (Score/Verdict/Variant/Threshold) on the entry timestamp.
     Empty frame if there are no fills yet."""
     d = _inst_dir(instrument)
-    try:
-        ex = pd.read_csv(d / "executions.csv")
-    except (OSError, ValueError, pd.errors.EmptyDataError):
+    # executions.csv holds only the CURRENT session — the logger rewrites it each
+    # day. Union the per-day archives (executions_YYYY-MM-DD.csv) + the current
+    # file so the dashboard keeps the FULL trade history, then dedupe identical
+    # fills (the current file duplicates today's archive).
+    frames = []
+    for f in sorted(d.glob("executions_*.csv")) + [d / "executions.csv"]:
+        try:
+            part = pd.read_csv(f)
+        except (OSError, ValueError, pd.errors.EmptyDataError):
+            continue
+        if not part.empty and "Entry time" in part.columns:
+            frames.append(part)
+    if not frames:
         return pd.DataFrame()
-    if ex.empty or "Entry time" not in ex.columns:
-        return pd.DataFrame()
+    ex = pd.concat(frames, ignore_index=True)
+    _dedup = [c for c in ("Entry time", "Exit time", "Market pos.", "Qty", "Profit")
+              if c in ex.columns]
+    if _dedup:
+        ex = ex.drop_duplicates(subset=_dedup, keep="last").reset_index(drop=True)
 
     ex = ex.rename(columns={
         "Entry time": "EntryTime", "Exit time": "ExitTime",
@@ -1064,6 +1077,13 @@ def main():
 
     # ---- HOME: one-glance overview (Edgewonk-style) — fits a screen, no scroll ----
     elif view == "🏠 Home":
+        # Live auto-refresh while the watch is ON — reloads executions/journal so
+        # new fills appear without a manual click. Quiet (no refresh) when OFF.
+        if ss.get("watch_toggle"):
+            @st.fragment(run_every=4)
+            def _live_refresh():
+                st.rerun()
+            _live_refresh()
         k = kpis(ex)
         if not k:
             st.info("No realized fills yet — the ML edge tab still works on the "
@@ -1136,23 +1156,34 @@ def main():
                     ss["f_calmonth"] = str(pd.Period(cm, "M") + delta)
 
             # Live-watch toggle — does the Control tab's Start/Stop watch without
-            # opening ⚙️ Control. on_change only fires on a real toggle (no
-            # spin-restart); default OFF so opening the dashboard never auto-starts.
-            def _toggle_watch():
+            # opening ⚙️ Control. Default ON: opening the dashboard auto-starts the
+            # watcher so live fills are journaled (and NinjaTrader is gated) without
+            # having to remember to flip it. on_change handles later toggles.
+            def _start_watch():
                 import subprocess
                 import sys
+                return subprocess.Popen(
+                    [sys.executable, "-c", "from toai.score import watch; watch()"],
+                    cwd=str(PROJECT_ROOT))
+
+            def _toggle_watch():
                 wp = ss.get("watch_proc")
                 alive = wp is not None and wp.poll() is None
                 if ss.get("watch_toggle") and not alive:
-                    ss["watch_proc"] = subprocess.Popen(
-                        [sys.executable, "-c", "from toai.score import watch; watch()"],
-                        cwd=str(PROJECT_ROOT))
+                    ss["watch_proc"] = _start_watch()
                 elif not ss.get("watch_toggle") and alive:
                     wp.terminate()
                     ss["watch_proc"] = None
+            ss.setdefault("watch_toggle", True)
             _wp = ss.get("watch_proc")
             _alive = _wp is not None and _wp.poll() is None
-            ss.setdefault("watch_toggle", _alive)
+            # Auto-start once when the default-ON toggle has no live watcher yet
+            # (guarded so it doesn't respawn on every rerun).
+            if ss["watch_toggle"] and not _alive and not ss.get("_watch_autostarted"):
+                ss["_watch_autostarted"] = True
+                ss["watch_proc"] = _start_watch()
+                _wp = ss["watch_proc"]
+                _alive = True
 
             # Left column: ‹ Month › nav on top (aligned with Monthly goal), and the
             # live-watch control on ONE line below (aligned with Month total).
