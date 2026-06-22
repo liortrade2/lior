@@ -458,18 +458,24 @@ hr { margin: 0.5rem 0; border-color: #e5e7eb; }
   box-shadow:0 1px 3px rgba(16,24,40,.05); }
 .cal-cardtitle { font-weight:700; font-size:1.15rem; color:#111827; }
 .cal-monthlbl { font-weight:700; font-size:1rem; color:#111827; text-align:center;
-  margin-top:10px; }  /* drop "June 2026" onto the Monthly-goal ($3,000) line */
-/* live-watch control row — status text + Off/On radio on a single line */
-.watch-status { font-size:.74rem; color:#6b7280; font-weight:600; white-space:nowrap; }
-.st-key-watch_radio [role="radiogroup"] { gap:12px; }
-.st-key-watch_radio [role="radiogroup"] label p { font-size:.82rem; }
+  margin-top:10px; position:relative; top:10px; }  /* June onto the Monthly-goal line */
+/* live-watch control row — status text + slide toggle on a single line */
+.watch-status { font-size:.74rem; color:#6b7280; font-weight:600; white-space:nowrap;
+  position:relative; top:10px; }
+.st-key-watch_toggle [data-testid="stWidgetLabel"] { display:none; }
+.st-key-watch_toggle { position:relative; top:20px; }
 /* the ‹ › nav buttons in the calendar header row */
-.st-key-cal_prev button, .st-key-cal_next button { border-radius:9px; padding:2px 0;
-  min-height:34px; color:#374151; font-size:1.1rem; margin-top:10px; }
-.cal-grid { display:grid; grid-template-columns:repeat(8,1fr); gap:7px; }
+.st-key-cal_prev button, .st-key-cal_next button { border-radius:7px; padding:1px 9px;
+  min-height:0; color:#6b7280; font-size:.85rem; line-height:1.2; margin-top:12px;
+  position:relative; top:10px; }
+/* hug the arrows to the "June 2026" label */
+.st-key-cal_prev { display:flex; justify-content:flex-end; }
+.st-key-cal_next { display:flex; justify-content:flex-start; }
+.cal-grid { display:grid; grid-template-columns:repeat(8,1fr); grid-template-rows:auto;
+  grid-auto-rows:84px; gap:7px; }
 .cal-dow { font-size:.68rem; color:#9aa3ad; font-weight:600; text-align:center;
   padding-bottom:2px; }
-.cal-cell { position:relative; min-height:74px; border-radius:12px; background:#f4f7fe;
+.cal-cell { position:relative; min-height:60px; border-radius:12px; background:#f4f7fe;
   border:1px solid #eaf0fb; padding:6px 9px; }
 .cal-cell.win { background:#e8f6ee; border-color:#cdebd8; }
 .cal-cell.loss { background:#fdeaea; border-color:#f6cccc; }
@@ -505,8 +511,9 @@ hr { margin: 0.5rem 0; border-color: #e5e7eb; }
 .cal-foot span { color:#6b7280; font-size:.8rem; font-weight:600; }
 .cal-foot b { font-size:1rem; font-weight:800; margin:0; }
 /* Monthly-goal tracker — sits in its own row below the calendar, hugging right */
-.cal-goal-below { display:flex; justify-content:flex-end; margin-top:10px; }  /* top-aligned, 10px from top — matches the nav row */
-.cal-goal-below .cal-goal { width:100%; }  /* fill the column so $-values sit at the calendar's right edge */
+.cal-goal-below { display:flex; justify-content:flex-start; margin-top:10px;
+  margin-left:-120px; }  /* left edge ("Monthly goal") sits at X≈400 */
+.cal-goal-below .cal-goal { width:600px; max-width:none; }  /* span 600px → $-values right edge at X≈1000 */
 .cal-goal { width:100%; }
 .cal-goal-row { display:flex; justify-content:space-between; align-items:center; padding:1px 0; }
 .cal-goal-row span { color:#6b7280; font-size:.8rem; font-weight:600; }
@@ -1136,38 +1143,36 @@ def main():
                 import sys
                 wp = ss.get("watch_proc")
                 alive = wp is not None and wp.poll() is None
-                if ss.get("watch_radio") == "▶ On" and not alive:
+                if ss.get("watch_toggle") and not alive:
                     ss["watch_proc"] = subprocess.Popen(
                         [sys.executable, "-c", "from toai.score import watch; watch()"],
                         cwd=str(PROJECT_ROOT))
-                elif ss.get("watch_radio") == "⏹ Off" and alive:
+                elif not ss.get("watch_toggle") and alive:
                     wp.terminate()
                     ss["watch_proc"] = None
             _wp = ss.get("watch_proc")
             _alive = _wp is not None and _wp.poll() is None
-            if ss.get("watch_radio") not in ("⏹ Off", "▶ On"):
-                ss["watch_radio"] = "▶ On" if _alive else "⏹ Off"
+            ss.setdefault("watch_toggle", _alive)
 
             # Left column: ‹ Month › nav on top (aligned with Monthly goal), and the
             # live-watch control on ONE line below (aligned with Month total).
             # Right column: the monthly-goal block.
-            navcol, goalcol = st.columns([3.4, 5], gap="small", vertical_alignment="top")
+            _sp, navcol, goalcol = st.columns([0.66, 3.4, 5], gap="small",
+                                              vertical_alignment="bottom")
             with navcol:
-                nc = st.columns([0.9, 2.0, 0.9], gap="small", vertical_alignment="center")
-                nc[0].button("‹", key="cal_prev", on_click=_shift_month, args=(-1,),
-                             width='stretch')
+                nc = st.columns([0.55, 1.5, 0.55, 2.4], gap="small", vertical_alignment="center")
+                nc[0].button("‹", key="cal_prev", on_click=_shift_month, args=(-1,))
                 nc[1].markdown(f"<div class='cal-monthlbl'>{cur.strftime('%B %Y')}</div>",
                                unsafe_allow_html=True)
-                nc[2].button("›", key="cal_next", on_click=_shift_month, args=(1,),
-                             width='stretch')
-                wc = st.columns([1.5, 1.7], gap="small", vertical_alignment="center")
+                nc[2].button("›", key="cal_next", on_click=_shift_month, args=(1,))
+                # wc mirrors nc's cumulative widths so the toggle lands under the › arrow.
+                wc = st.columns([2.05, 0.55, 2.4], gap="small", vertical_alignment="center")
                 wc[0].markdown(
                     f"<div class='watch-status'>"
                     f"{'🟢 watch running' if _alive else '⚪ watch stopped'}</div>",
                     unsafe_allow_html=True)
-                wc[1].radio("watch", ["⏹ Off", "▶ On"], horizontal=True,
-                            label_visibility="collapsed", key="watch_radio",
-                            on_change=_toggle_watch)
+                wc[1].toggle("watch", key="watch_toggle", label_visibility="collapsed",
+                             on_change=_toggle_watch)
             goalcol.markdown(
                 f"<div class='cal-goal-below'>"
                 f"{_month_goal_html(mtot_disp, usym.strip() or '$', goal_month, month_dollars)}"
