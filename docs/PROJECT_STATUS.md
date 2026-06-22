@@ -1,7 +1,40 @@
 # TOAI — Project Status & Handoff
 
-> **קרא אותי ראשון בכל chat חדש.** עדכון אחרון: **2026-06-20** (📈 Analytics dashboard + עיצוב-מחדש של Home בסגנון Edgewonk).
+> **קרא אותי ראשון בכל chat חדש.** עדכון אחרון: **2026-06-22** (Home polish סופי + app-mode launcher).
 > כתוב כ-handoff מלא — הצ'אט הקודם הגיע לגבול אורך.
+
+---
+
+## 🆕 סשן 2026-06-21/22 — ליטוש Home + כפתור app-mode בשולחן העבודה
+
+**הכל נדחף** ל-`claude/magical-dirac-1yd0d4` (HEAD = `33ddd61`). שונו רק `toai/dashboard.py`
+ו-`TOAI_Analytics_App.bat` (חדש). אומת לאורך הדרך עם `AppTest.from_file('toai/dashboard.py')`.
+
+### מה נעשה — Home (toai/dashboard.py)
+- **פריסה:** לוח-שנה ברוחב מלא בראש, ואז שורה תחתונה: משמאל **‹ June ›** nav + פקד **watch**;
+  מימין בלוק היעד (Monthly goal / Month total). למטה: כרטיסי KPI (גובה 120px, שווי-גובה) ופאנל Evaluation.
+- **לוח-שנה:** תאים אחידים `grid-auto-rows:84px` + `grid-template-rows:auto` (כותרת Mon..Sun נשארת נמוכה,
+  התאים צמודים אליה). תאי-מסחר לחיצים → `?day=YYYY-MM-DD` פותח journal-יום (`_day_detail`).
+- **פקד watch:** `st.toggle` (key=`watch_toggle`, default OFF) עם שורת-סטטוס `🟢/⚪`. מפעיל/עוצר את
+  אותו subprocess כמו טאב Control (`from toai.score import watch`). **ברירת מחדל OFF — לא מפעיל לבד.**
+- **ניווט חודשים:** חצים קטנים `on_click=_shift_month` (key `cal_prev`/`cal_next`) על `ss["f_calmonth"]`.
+- **מיקום מדויק (pixel-tuned, שביר):** הבלוק השמאלי ממוקם ע"י עמודת-ריווח `st.columns([0.66, 3.4, 5])`,
+  בלוק היעד ע"י `.cal-goal-below { margin-left:-120px }` + `.cal-goal { width:600px }`, והזזות-עדינות
+  ב-`position:relative; top` על `.cal-monthlbl`/החצים/`.watch-status`/`.st-key-watch_toggle`.
+  ⚠️ **המספרים האלה כוילו ידנית מול חלון 1071×589** — אם משנים גודל חלון או padding, צריך לכייל מחדש
+  (יש שיטת "גריד-כיול" שאפשר להחזיר זמנית: `.stApp::before` עם repeating-linear-gradient כל 10/100px).
+
+### כפתור הדסקטופ (`TOAI_Analytics_App.bat` + קיצור "TOAI Analytics" בשולחן העבודה)
+- פותח את הדשבורד כ**חלון אפליקציה נקי** (Chrome/Edge `--app`, גודל 1071×589, פרופיל ייעודי
+  `--user-data-dir`, `--disable-extensions` כדי שלא יופיעו תוספים כמו AdBlock360).
+- השרת רץ ב**חלון ממוזער**; **סגירת חלון האפליקציה סוגרת את השרת** (`start /wait` על Chrome ואז
+  `taskkill /f /t` על ה-PID שמאזין על 8765). הקיצור עצמו מקומי (לא ב-git).
+
+### פתוח / לצ'אט הבא
+- כרטיס **ML edge** עדיין מציג מספר גם כש-selectivity=0% (`allow.n==0`) → כדאי "—".
+- נרות אמיתיים ב-Trade explorer ממתינים ל-recompile של `TOAIExporterGaugeTick` (OHLC).
+- המיקומים ב-Home נעולים לחלון 1071×589 — אם רוצים responsive/גודל אחר, צריך לעבור מ-pixel-tuning
+  ל-flex/grid יחסי.
 
 ---
 
