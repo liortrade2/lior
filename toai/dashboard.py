@@ -535,6 +535,7 @@ hr { margin: 0.5rem 0; border-color: #e5e7eb; }
 .cal-goal-bar { height:7px; border-radius:4px; background:#eef1f6; overflow:hidden; margin:5px 0; }
 .cal-goal-bar i { display:block; height:100%; border-radius:4px; background:#16a34a; }
 .cal-goal-bar i.loss { background:#ef4444; }
+.cal-goal-bar i.warn { background:#f59e0b; }
 .cal-goal-rem { text-align:right; font-size:.78rem; font-weight:700; color:#6b7280; margin-top:1px; }
 .cal-goal-rem.win { color:#16a34a; } .cal-goal-rem.loss { color:#dc2626; }
 </style>
@@ -751,6 +752,33 @@ def _month_goal_html(mtot_disp, unit_label, goal, goal_now):
             f"<b class='cal-goal-rem {remcls}'>{rem_text}</b></div></div>")
 
 
+def _eval_html(net_now, dd_from_peak, profit_target, max_dd):
+    """Prop-evaluation tracker (replaces the monthly-goal block): progress toward
+    the $ profit target, and the remaining trailing-drawdown buffer. Both in $,
+    on a closed-trade balance basis. `net_now` = cumulative account P&L, peak,
+    `dd_from_peak` = peak − net_now (how far below the high-water mark)."""
+    pt, md = profit_target or 0, max_dd or 0
+    # profit target
+    ppct = max(0.0, min(100.0, net_now / pt * 100)) if pt else 0.0
+    pcls = "win" if net_now >= 0 else "loss"
+    p_txt = "🎉 target hit" if (pt and net_now >= pt) else f"{net_now:+,.0f}"
+    # trailing-drawdown buffer (how much $ before failing)
+    buf = md - dd_from_peak
+    bpct = max(0.0, min(100.0, buf / md * 100)) if md else 0.0
+    blown = bool(md) and buf <= 0
+    barcls = "loss" if (blown or bpct < 25) else ("warn" if bpct < 50 else "")
+    valcls = "loss" if (blown or bpct < 25) else "win"
+    b_txt = "❌ DD hit" if blown else f"${buf:,.0f} left"
+    return (f"<div class='cal-goal'>"
+            f"<div class='cal-goal-row'><span>Profit target ${pt:,.0f}</span>"
+            f"<b class='cal-pnl {pcls}'>{p_txt}</b></div>"
+            f"<div class='cal-goal-bar'><i style='width:{ppct:.0f}%'></i></div>"
+            f"<div class='cal-goal-row'><span>Max trailing DD ${md:,.0f}</span>"
+            f"<b class='cal-pnl {valcls}'>{b_txt}</b></div>"
+            f"<div class='cal-goal-bar'><i class='{barcls}' "
+            f"style='width:{bpct:.0f}%'></i></div></div>")
+
+
 def _day_detail(st, ex, day_str, u, usym):
     """The per-day 'journal' panel shown when a calendar day is clicked
     (?day=YYYY-MM-DD) — a quick summary plus that day's individual trades."""
@@ -875,6 +903,8 @@ def main():
     ss.setdefault("f_source", "Realized fills")
     ss.setdefault("f_unit", "$")
     ss.setdefault("f_gday", 200)
+    ss.setdefault("f_profit_target", 1500)
+    ss.setdefault("f_max_dd", 1500)
     ss.setdefault("f_gweek", 800)
     ss.setdefault("f_gmonth", 3000)
     inst, source, unit = ss["f_inst"], ss["f_source"], ss["f_unit"]
@@ -1141,6 +1171,12 @@ def main():
             mdf = dp[dp["Day"].dt.to_period("M").astype(str) == msel]
             month_dollars = float(mdf["sum"].sum()) if len(mdf) else 0.0
             mtot_disp = float(mdf["uPnL"].sum()) if len(mdf) else 0.0
+            # Prop-evaluation: cumulative account P&L ($), running peak, and how
+            # far below it (trailing-drawdown basis). ex is sorted by EntryTime.
+            _allp = pd.to_numeric(ex["Profit"], errors="coerce").fillna(0)
+            _cum = _allp.cumsum()
+            eval_net = float(_cum.iloc[-1]) if len(_cum) else 0.0
+            eval_dd = float((_cum.cummax() - _cum).iloc[-1]) if len(_cum) else 0.0
             st.markdown(calendar_html(mdf, usym.strip() or "$", month=msel,
                                       today=pd.Timestamp.today().date(),
                                       goal_day=goal_day, goal_week=goal_week),
@@ -1206,7 +1242,7 @@ def main():
                              on_change=_toggle_watch)
             goalcol.markdown(
                 f"<div class='cal-goal-below'>"
-                f"{_month_goal_html(mtot_disp, usym.strip() or '$', goal_month, month_dollars)}"
+                f"{_eval_html(eval_net, eval_dd, ss['f_profit_target'], ss['f_max_dd'])}"
                 f"</div>", unsafe_allow_html=True)
 
             # ── Below the calendar: KPI cards, then the Evaluation panel ──
@@ -1609,6 +1645,9 @@ def main():
         gc[0].number_input("Daily goal ($)", step=50, key="f_gday")
         gc[1].number_input("Weekly goal ($)", step=100, key="f_gweek")
         gc[2].number_input("Monthly goal ($)", step=250, key="f_gmonth")
+        ec = st.columns(2)
+        ec[0].number_input("Profit target ($)", step=250, key="f_profit_target")
+        ec[1].number_input("Max trailing DD ($)", step=250, key="f_max_dd")
 
 
 def _calendar_grid(mdf):
