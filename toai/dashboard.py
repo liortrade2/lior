@@ -945,6 +945,16 @@ def main():
 
     scored, _thr, oos, dfrom, dto = scored_for(inst, source)
     ex = load_realized(inst)
+    # Account filter (pro-journal pattern: one store, filter by the Account
+    # column). "All accounts" = consolidated; pick one to scope the whole view
+    # (calendar, KPIs, evaluation) to that account, e.g. the Bulenox eval.
+    accounts = (sorted(ex["Account"].dropna().astype(str).unique())
+                if "Account" in ex.columns and len(ex) else [])
+    acct_opts = ["All accounts"] + accounts
+    if ss.get("f_account") not in acct_opts:
+        ss["f_account"] = "All accounts"
+    if ss["f_account"] != "All accounts" and "Account" in ex.columns:
+        ex = ex[ex["Account"].astype(str) == ss["f_account"]].reset_index(drop=True)
 
     def u(dollars):
         return to_units(dollars, inst, unit)
@@ -1676,12 +1686,13 @@ def main():
     botbar = st.container(key="botbar")
     botbar.divider()
     with botbar.expander("⚙ Filters & goals", expanded=False):
-        fc = st.columns([1.2, 1.6, 2.2, 1.4])
-        fc[0].selectbox("Instrument", insts, key="f_inst")
-        fc[1].radio("Data source", ["Realized fills", "Walk-forward backtest"],
+        fc = st.columns([1.7, 1.1, 1.5, 2.0, 1.3])
+        fc[0].selectbox("Account", acct_opts, key="f_account")
+        fc[1].selectbox("Instrument", insts, key="f_inst")
+        fc[2].radio("Data source", ["Realized fills", "Walk-forward backtest"],
                     key="f_source")
-        fc[2].slider("ML gate threshold", 0, 100, key="f_thr")
-        fc[3].radio("Display unit", ["$", "points", "ticks"], key="f_unit")
+        fc[3].slider("ML gate threshold", 0, 100, key="f_thr")
+        fc[4].radio("Display unit", ["$", "points", "ticks"], key="f_unit")
         gc = st.columns(3)
         gc[0].number_input("Daily goal ($)", step=50, key="f_gday")
         gc[1].number_input("Weekly goal ($)", step=100, key="f_gweek")

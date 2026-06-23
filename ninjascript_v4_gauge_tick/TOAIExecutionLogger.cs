@@ -242,7 +242,12 @@ namespace NinjaTrader.NinjaScript.AddOns
         {
             string dir = Path.Combine(root, inst);
             Directory.CreateDirectory(dir);
-            string dest = Path.Combine(dir, "executions.csv");
+            // Per-ACCOUNT filenames so multiple accounts trading the same
+            // instrument never overwrite each other. The dashboard/watch glob
+            // executions_*.csv and tell accounts apart by the "Account" column
+            // (the pro-journal pattern: one store, filter by account).
+            string acct = SanitizeAccount(account.Name);
+            string dest = Path.Combine(dir, "executions_" + acct + ".csv");
 
             // Commission + MAE/MFE + Highest/Lowest price feed Edgewonk's
             // optional fields (the TOAI Python export maps them straight over).
@@ -312,8 +317,19 @@ namespace NinjaTrader.NinjaScript.AddOns
             // Durable per-day files — never overwritten across sessions, so the
             // watch ingests any session it missed on its next pass.
             foreach (KeyValuePair<string, StringBuilder> kv in byDate)
-                WriteAtomic(Path.Combine(dir, "executions_" + kv.Key + ".csv"),
+                WriteAtomic(Path.Combine(dir, "executions_" + acct + "_" + kv.Key + ".csv"),
                             kv.Value.ToString());
+        }
+
+        // Make a NinjaTrader account name (e.g. "BX104751-01!Bulenox!Bulenox")
+        // safe and clean for a filename, without losing the raw name in the CSV.
+        private static string SanitizeAccount(string name)
+        {
+            if (string.IsNullOrEmpty(name))
+                return "Unknown";
+            foreach (char c in Path.GetInvalidFileNameChars())
+                name = name.Replace(c, '_');
+            return name.Replace('!', '_').Replace(' ', '_');
         }
 
         // Atomic-ish write (temp + overwrite) so the Python watch never reads a
