@@ -537,6 +537,18 @@ hr { margin: 0.5rem 0; border-color: #e5e7eb; }
 .cal-goal-bar i.loss { background:#ef4444; }
 .cal-goal-bar i.warn { background:#f59e0b; }
 .cal-goal-cap { text-align:right; font-size:.66rem; color:#9aa3ad; margin-top:3px; }
+/* evaluation range bar: Trailing DD (left) · 0 (center) · Profit target (right) */
+.eval-labels { display:flex; justify-content:space-between; align-items:center;
+  font-size:.74rem; font-weight:600; margin-bottom:5px; }
+.eval-labels .loss { color:#dc2626; } .eval-labels .win { color:#16a34a; }
+.eval-labels .mid { color:#9aa3ad; font-size:.7rem; }
+.eval-bar { position:relative; height:12px; border-radius:6px; background:#eef1f6; overflow:hidden; }
+.eval-fill { position:absolute; top:0; bottom:0; }
+.eval-fill.win { background:#16a34a; } .eval-fill.loss { background:#ef4444; }
+.eval-zero { position:absolute; top:0; bottom:0; width:2px; background:#c2c8d0;
+  transform:translateX(-1px); }
+.eval-floor { position:absolute; top:0; bottom:0; width:2px; background:#111827;
+  transform:translateX(-1px); }
 .cal-goal-rem { text-align:right; font-size:.78rem; font-weight:700; color:#6b7280; margin-top:1px; }
 .cal-goal-rem.win { color:#16a34a; } .cal-goal-rem.loss { color:#dc2626; }
 </style>
@@ -763,38 +775,36 @@ def _eval_html(net_now, dd_from_peak, profit_target, max_dd, account_size=0,
     closest the real-time equity (incl. intraday MAE lows) ever got to the floor —
     ≤0 means it was touched."""
     pt, md = profit_target or 0, max_dd or 0
-    ppct = max(0.0, min(100.0, net_now / pt * 100)) if pt else 0.0
-    pcls = "win" if net_now >= 0 else "loss"
-    p_txt = "🎉 target hit" if (pt and net_now >= pt) else f"{net_now:+,.0f}"
-    # floor locked at the starting balance → floor_net = min(peak_net − md, 0)
+    rng = (md + pt) or 1
     peak_net = net_now + dd_from_peak
-    floor_net = min(peak_net - md, 0.0) if md else 0.0
-    buf = net_now - floor_net                     # $ before failing (current)
-    bpct = max(0.0, min(100.0, buf / md * 100)) if md else 0.0
+    floor_net = min(peak_net - md, 0.0) if md else 0.0   # locked at start
+    buf = net_now - floor_net                            # $ before failing
     blown = bool(md) and buf <= 0
-    barcls = "loss" if (blown or bpct < 25) else ("warn" if bpct < 50 else "")
-    valcls = "loss" if (blown or bpct < 25) else "win"
-    b_txt = "❌ DD hit" if blown else f"${buf:,.0f} left"
-    cap = ""
+    target_hit = bool(pt) and net_now >= pt
+
+    def _pos(v):  # value in net terms (−md … +pt) → 0..100% across the bar
+        return max(0.0, min(100.0, (v + md) / rng * 100))
+    zero, npos, fpos = _pos(0), _pos(net_now), _pos(floor_net)
+    lo, hi = sorted((zero, npos))
+    fillcls = "win" if net_now >= 0 else "loss"
+
+    labels = (f"<div class='eval-labels'>"
+              f"<span class='loss'>Trailing DD ${md:,.0f}</span>"
+              f"<span class='mid'>0</span>"
+              f"<span class='win'>Profit target ${pt:,.0f}</span></div>")
+    bar = (f"<div class='eval-bar'>"
+           f"<div class='eval-fill {fillcls}' style='left:{lo:.1f}%;width:{hi-lo:.1f}%'></div>"
+           f"<div class='eval-floor' style='left:{fpos:.1f}%'></div>"
+           f"<div class='eval-zero' style='left:{zero:.1f}%'></div></div>")
+    parts = ["🎉 target hit" if target_hit else f"Net {net_now:+,.0f}",
+             "❌ DD hit" if blown else f"buffer ${buf:,.0f}"]
     if account_size:
-        bal = account_size + net_now
-        floor = account_size + floor_net
-        if min_buf is not None and min_buf <= 0:
-            extra = " · <b style='color:#dc2626'>⚠ touched floor intraday</b>"
-        elif min_buf is not None:
-            extra = f" · closest ${min_buf:,.0f} to floor"
-        else:
-            extra = ""
-        cap = (f"<div class='cal-goal-cap'>Balance ${bal:,.0f} · floor "
-               f"${floor:,.0f}{extra}</div>")
-    return (f"<div class='cal-goal'>"
-            f"<div class='cal-goal-row'><span>Profit target ${pt:,.0f}</span>"
-            f"<b class='cal-pnl {pcls}'>{p_txt}</b></div>"
-            f"<div class='cal-goal-bar'><i style='width:{ppct:.0f}%'></i></div>"
-            f"<div class='cal-goal-row'><span>Trailing DD ${md:,.0f}</span>"
-            f"<b class='cal-pnl {valcls}'>{b_txt}</b></div>"
-            f"<div class='cal-goal-bar'><i class='{barcls}' "
-            f"style='width:{bpct:.0f}%'></i></div>{cap}</div>")
+        parts.append(f"bal ${account_size + net_now:,.0f}")
+        parts.append(f"floor ${account_size + floor_net:,.0f}")
+    if min_buf is not None and min_buf <= 0:
+        parts.append("<b style='color:#dc2626'>⚠ touched floor</b>")
+    cap = f"<div class='cal-goal-cap'>{' · '.join(parts)}</div>"
+    return f"<div class='cal-goal'>{labels}{bar}{cap}</div>"
 
 
 def _day_detail(st, ex, day_str, u, usym):
