@@ -951,15 +951,30 @@ def main():
     # (calendar, KPIs, evaluation) to that account, e.g. the Bulenox eval.
     accounts = (sorted(ex["Account"].dropna().astype(str).unique())
                 if "Account" in ex.columns and len(ex) else [])
+    # Include EVERY NinjaTrader account (the AddOn writes them to accounts.txt),
+    # not just ones that have already traded — so you can pick e.g. Bulenox first.
+    _acct_file = config.DATA_ROOT / "accounts.txt"
+    if _acct_file.exists():
+        try:
+            accounts = sorted(set(accounts) | {
+                a.strip() for a in _acct_file.read_text(
+                    encoding="utf-8", errors="ignore").splitlines() if a.strip()})
+        except OSError:
+            pass
     acct_opts = ["All accounts"] + accounts
     if ss.get("f_account") not in acct_opts:
         ss["f_account"] = "All accounts"
+
+    def _acct_label(a):  # "BX104751-01!Bulenox!Bulenox" -> "Bulenox · BX104751-01"
+        parts = [p for p in str(a).split("!") if p]
+        return f"{parts[1]} · {parts[0]}" if len(parts) >= 2 else a
+
     # Prominent, always-visible account selector at the top (TradeZella-style),
     # so switching accounts never needs the filter drawer.
     _ac = st.columns([6, 0.9, 1.7], gap="small", vertical_alignment="center")
     _ac[1].markdown("<div class='acct-lbl'>Account</div>", unsafe_allow_html=True)
     _ac[2].selectbox("Account", acct_opts, key="f_account",
-                     label_visibility="collapsed")
+                     format_func=_acct_label, label_visibility="collapsed")
     if ss["f_account"] != "All accounts" and "Account" in ex.columns:
         ex = ex[ex["Account"].astype(str) == ss["f_account"]].reset_index(drop=True)
 

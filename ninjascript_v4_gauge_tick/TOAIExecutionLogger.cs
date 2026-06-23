@@ -99,6 +99,28 @@ namespace NinjaTrader.NinjaScript.AddOns
             lock (Account.All)
                 foreach (Account a in Account.All)
                     Hook(a);
+            WriteAccountList();
+        }
+
+        // Write every NinjaTrader account name to <DataRoot>\accounts.txt so the
+        // dashboard can list accounts that have not traded yet (e.g. a fresh
+        // Bulenox eval). One name per line; the live journal stays per-account.
+        private void WriteAccountList()
+        {
+            try
+            {
+                List<string> names = new List<string>();
+                lock (Account.All)
+                    foreach (Account a in Account.All)
+                        if (a != null && !string.IsNullOrEmpty(a.Name) &&
+                            a.Name.IndexOf("Playback", StringComparison.OrdinalIgnoreCase) < 0 &&
+                            !names.Contains(a.Name))
+                            names.Add(a.Name);
+                Directory.CreateDirectory(dataRoot);
+                WriteAtomic(Path.Combine(dataRoot, "accounts.txt"),
+                            string.Join(Environment.NewLine, names));
+            }
+            catch { }
         }
 
         private void Hook(Account a)
