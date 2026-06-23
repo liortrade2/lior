@@ -977,35 +977,50 @@ def main():
         al = str(a).lower()
         return "Demo" if ("sim" in al or "demo" in al or "playback" in al) else "Evaluation"
     TYPE_ORDER = ["Evaluation", "Funded", "Demo"]
+    SINGLE = "Single account…"
     acct_type = {a: acct_types_saved.get(a, _default_type(a)) for a in accounts}
-    # Always offer all three group options (even before an account of that type
-    # exists) so e.g. "All Funded" is ready the moment an eval gets funded.
-    acct_opts = (["All accounts"] + [f"All {t}" for t in TYPE_ORDER] + accounts)
+    # Scope dropdown = groups only; the individual accounts live in a second
+    # dropdown that appears when "Single account…" is picked.
+    acct_opts = ["All accounts"] + [f"All {t}" for t in TYPE_ORDER] + [SINGLE]
     if ss.get("f_account") not in acct_opts:
         ss["f_account"] = "All accounts"
+    if accounts and ss.get("f_account_one") not in accounts:
+        ss["f_account_one"] = accounts[0]
 
-    def _acct_label(a):
+    def _scope_label(a):
         if a == "All accounts":
             return "📊 All accounts"
-        if a.startswith("All ") and a[4:] in TYPE_ORDER:
-            return f"▸ All {a[4:]} accounts"
+        if a == SINGLE:
+            return "👤 Single account…"
+        return f"▸ All {a[4:]} accounts"
+
+    def _one_label(a):  # "BX104751-01!Bulenox!Bulenox" -> "Bulenox · BX104751-01"
         parts = [p for p in str(a).split("!") if p]
         return f"{parts[1]} · {parts[0]}" if len(parts) >= 2 else a
 
-    # Prominent, always-visible account selector at the top (TradeZella-style),
-    # so switching accounts never needs the filter drawer.
-    _ac = st.columns([6, 0.9, 1.7], gap="small", vertical_alignment="center")
-    _ac[1].markdown("<div class='acct-lbl'>Account</div>", unsafe_allow_html=True)
-    _ac[2].selectbox("Account", acct_opts, key="f_account",
-                     format_func=_acct_label, label_visibility="collapsed")
+    # Prominent, always-visible selector at the top (TradeZella-style).
+    _scope = ss["f_account"]
+    if _scope == SINGLE and accounts:
+        _ac = st.columns([3.9, 0.9, 1.5, 1.7], gap="small", vertical_alignment="center")
+        _ac[1].markdown("<div class='acct-lbl'>Account</div>", unsafe_allow_html=True)
+        _ac[2].selectbox("Scope", acct_opts, key="f_account",
+                         format_func=_scope_label, label_visibility="collapsed")
+        _ac[3].selectbox("Account", accounts, key="f_account_one",
+                         format_func=_one_label, label_visibility="collapsed")
+    else:
+        _ac = st.columns([6, 0.9, 1.7], gap="small", vertical_alignment="center")
+        _ac[1].markdown("<div class='acct-lbl'>Account</div>", unsafe_allow_html=True)
+        _ac[2].selectbox("Scope", acct_opts, key="f_account",
+                         format_func=_scope_label, label_visibility="collapsed")
 
-    _sel = ss["f_account"]
-    if "Account" in ex.columns and _sel != "All accounts":
-        if _sel.startswith("All ") and _sel[4:] in TYPE_ORDER:
-            _keep = [a for a in accounts if acct_type[a] == _sel[4:]]
+    if "Account" in ex.columns and _scope != "All accounts":
+        if _scope == SINGLE:
+            _one = ss.get("f_account_one")
+            if _one:
+                ex = ex[ex["Account"].astype(str) == _one].reset_index(drop=True)
+        else:  # "All <Type>"
+            _keep = [a for a in accounts if acct_type[a] == _scope[4:]]
             ex = ex[ex["Account"].astype(str).isin(_keep)].reset_index(drop=True)
-        else:
-            ex = ex[ex["Account"].astype(str) == _sel].reset_index(drop=True)
 
     def u(dollars):
         return to_units(dollars, inst, unit)
@@ -1759,7 +1774,7 @@ def main():
             changed = {}
             for i, a in enumerate(accounts):
                 pick = tcols[i % len(tcols)].selectbox(
-                    _acct_label(a), TYPE_ORDER, index=TYPE_ORDER.index(acct_type[a]),
+                    _one_label(a), TYPE_ORDER, index=TYPE_ORDER.index(acct_type[a]),
                     key=f"acctype_{a}")
                 if pick != acct_types_saved.get(a):
                     changed[a] = pick
