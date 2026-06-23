@@ -537,6 +537,7 @@ hr { margin: 0.5rem 0; border-color: #e5e7eb; }
 .cal-goal-bar i.loss { background:#ef4444; }
 .cal-goal-bar i.warn { background:#f59e0b; }
 .cal-goal-cap { text-align:right; font-size:.66rem; color:#9aa3ad; margin-top:3px; }
+.acct-lbl { text-align:right; font-size:.8rem; font-weight:600; color:#6b7280; white-space:nowrap; }
 /* evaluation range bar: Trailing DD (left) · 0 (center) · Profit target (right) */
 .eval-labels { display:flex; justify-content:space-between; align-items:center;
   font-size:.74rem; font-weight:600; margin-bottom:5px; }
@@ -953,6 +954,12 @@ def main():
     acct_opts = ["All accounts"] + accounts
     if ss.get("f_account") not in acct_opts:
         ss["f_account"] = "All accounts"
+    # Prominent, always-visible account selector at the top (TradeZella-style),
+    # so switching accounts never needs the filter drawer.
+    _ac = st.columns([6, 0.9, 1.7], gap="small", vertical_alignment="center")
+    _ac[1].markdown("<div class='acct-lbl'>Account</div>", unsafe_allow_html=True)
+    _ac[2].selectbox("Account", acct_opts, key="f_account",
+                     label_visibility="collapsed")
     if ss["f_account"] != "All accounts" and "Account" in ex.columns:
         ex = ex[ex["Account"].astype(str) == ss["f_account"]].reset_index(drop=True)
 
@@ -1686,13 +1693,12 @@ def main():
     botbar = st.container(key="botbar")
     botbar.divider()
     with botbar.expander("⚙ Filters & goals", expanded=False):
-        fc = st.columns([1.7, 1.1, 1.5, 2.0, 1.3])
-        fc[0].selectbox("Account", acct_opts, key="f_account")
-        fc[1].selectbox("Instrument", insts, key="f_inst")
-        fc[2].radio("Data source", ["Realized fills", "Walk-forward backtest"],
+        fc = st.columns([1.2, 1.6, 2.2, 1.4])
+        fc[0].selectbox("Instrument", insts, key="f_inst")
+        fc[1].radio("Data source", ["Realized fills", "Walk-forward backtest"],
                     key="f_source")
-        fc[3].slider("ML gate threshold", 0, 100, key="f_thr")
-        fc[4].radio("Display unit", ["$", "points", "ticks"], key="f_unit")
+        fc[2].slider("ML gate threshold", 0, 100, key="f_thr")
+        fc[3].radio("Display unit", ["$", "points", "ticks"], key="f_unit")
         gc = st.columns(3)
         gc[0].number_input("Daily goal ($)", step=50, key="f_gday")
         gc[1].number_input("Weekly goal ($)", step=100, key="f_gweek")
