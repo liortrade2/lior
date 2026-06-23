@@ -1,7 +1,50 @@
 # TOAI — Project Status & Handoff
 
-> **קרא אותי ראשון בכל chat חדש.** עדכון אחרון: **2026-06-22** (Home polish סופי + app-mode launcher).
+> **קרא אותי ראשון בכל chat חדש.** עדכון אחרון: **2026-06-22** (ריבוי חשבונות + Bulenox evaluation tracker).
 > כתוב כ-handoff מלא — הצ'אט הקודם הגיע לגבול אורך.
+
+---
+
+## 🆕 סשן 2026-06-22 (חלק ב') — ריבוי חשבונות + מעקב Prop-Evaluation
+
+**הכל נדחף** ל-`claude/magical-dirac-1yd0d4` (HEAD ≈ `129f3e5`). שונו `toai/dashboard.py`
+ו-`ninjascript_v4_gauge_tick/TOAIExecutionLogger.cs`. אומת לאורך הדרך עם בדיקות `_eval_html`/
+`load_realized` ישירות (⚠️ **לא** עם AppTest מלא — כי `watch_toggle` ברירת מחדל ON ו-Home מפעיל
+watch אמיתי; ריצה תתנגש ב-watch של המשתמש. השתמש בקריאות-פונקציה ישירות או compile-check).
+
+### ריבוי חשבונות (גישת הפרו — DB אחד + שדה Account, לא תיקיות)
+- **AddOn** כותב **פר-חשבון**: `<inst>/executions_<account>.csv` + `_<date>.csv` (שם מנוקה,
+  `!`→`_`), וגם `<DataRoot>/accounts.txt` עם כל חשבונות הנינגה (מדלג Playback). ה-watch כבר
+  עושה glob על `executions_*.csv`.
+- **`load_realized`** מאחד את **כל** ארכיוני ה-`executions_*.csv` + הקובץ הנוכחי (dedup) — כך
+  שכל ההיסטוריה נשמרת (executions.csv נדרס כל סשן). מסנן לפי `f_account`.
+- **בורר חשבון** בראש הדף (גלוי תמיד), **שני dropdowns**: scope (📊 All / ▸ All Evaluation /
+  Funded / Demo / 👤 Single account…) + dropdown שני לחשבון הספציפי. סיווג ב-`account_types.json`
+  (ברירת מחדל לפי שם: Sim/Demo→Demo, אחרת Evaluation), נערך ב-Filters & goals → "Account types".
+
+### פאנל Evaluation (Bulenox 25K — `_eval_html` + חישוב ב-Home)
+מחליף את ה-Monthly goal. **בר טווח אחד:** Trailing DD שמאל · 0 מרכז · Profit target ימין, מילוי
+ירוק/אדום מהמרכז לנטו, וסמן floor כהה. מתחת: Net/buffer/Balance/floor + התראת MAE.
+**מדויק ל-Bulenox** (אומת מהלינק): trailing **real-time כולל unrealized** → peak לפי **MFE($)**;
+**floor נעול ב-balance ההתחלתי** (`floor_net = min(peak_net − md, 0)`); **MAE** = הקרבה הכי גדולה
+ל-floor תוך-עסקה ("⚠ touched floor"). ⚠️ MFE/MAE ב-executions הם **ב-$** (לא points). הגדרות:
+`f_account_size/f_profit_target/f_max_dd` (25000/1500/1500) ב-Filters & goals. בסיס closed-trade;
+trailing טהור עם נעילה-ב-start (אין נעילה-ב-breakeven נוספת).
+
+### עוד ב-Home
+- **watch toggle ברירת מחדל ON** + auto-start פעם אחת (guard `_watch_autostarted`).
+- **auto-refresh כל 4ש'** כשה-watch ON (`@st.fragment(run_every=4)` → `st.rerun`).
+
+### גיבוי / פורמט (המשתמש מתכנן פורמט)
+- `TOAI_Backup_ToD.bat` — robocopy של `C:\LIOR_ML` + `C:\lior` ל-`D:\TOAI_Backup_<date>`.
+- `C:\LIOR_ML\RESTORE_README.md` — מדריך שחזור מלא (בתוך הגיבוי).
+
+### פתוח לצ'אט הבא
+- **קבוצה עם כמה חשבונות** → ה-eval מאחד P&L (לא נכון ל-trailing על כמה חשבונות נפרדים); מדויק
+  לחשבון בודד. שווה: eval פר-חשבון בתוך קבוצה, או להסתיר eval בקבוצות.
+- **journal.csv עדיין בלי עמודת Account** → ML edge לא מסונן פר-חשבון (הלוח-שנה/eval כן, דרך
+  executions). אם רוצים ML-edge-per-account — להוסיף Account ל-`_LEDGER_COLS`.
+- כרטיס ML edge מציג מספר גם כש-selectivity=0% (`allow.n==0`) → כדאי "—".
 
 ---
 
