@@ -753,17 +753,23 @@ def _month_goal_html(mtot_disp, unit_label, goal, goal_now):
             f"<b class='cal-goal-rem {remcls}'>{rem_text}</b></div></div>")
 
 
-def _eval_html(net_now, dd_from_peak, profit_target, max_dd, account_size=0):
-    """Prop-evaluation tracker (Bulenox-style): progress toward the $ profit
+def _eval_html(net_now, dd_from_peak, profit_target, max_dd, account_size=0,
+               min_buf=None):
+    """Prop-evaluation tracker (Bulenox 25K-style): progress toward the $ profit
     target, and the remaining real-time trailing-drawdown buffer. `net_now` =
     cumulative account P&L ($, commission-inclusive); `dd_from_peak` = how far
-    below the (intraday, MFE-inclusive) high-water mark. `account_size` shows the
-    absolute balance/floor (e.g. $25,000)."""
+    below the (intraday, MFE-inclusive) high-water mark. The trailing floor LOCKS
+    at the starting balance (Bulenox stops trailing there). `min_buf` is the
+    closest the real-time equity (incl. intraday MAE lows) ever got to the floor —
+    ≤0 means it was touched."""
     pt, md = profit_target or 0, max_dd or 0
     ppct = max(0.0, min(100.0, net_now / pt * 100)) if pt else 0.0
     pcls = "win" if net_now >= 0 else "loss"
     p_txt = "🎉 target hit" if (pt and net_now >= pt) else f"{net_now:+,.0f}"
-    buf = md - dd_from_peak                       # $ before failing
+    # floor locked at the starting balance → floor_net = min(peak_net − md, 0)
+    peak_net = net_now + dd_from_peak
+    floor_net = min(peak_net - md, 0.0) if md else 0.0
+    buf = net_now - floor_net                     # $ before failing (current)
     bpct = max(0.0, min(100.0, buf / md * 100)) if md else 0.0
     blown = bool(md) and buf <= 0
     barcls = "loss" if (blown or bpct < 25) else ("warn" if bpct < 50 else "")
@@ -772,9 +778,15 @@ def _eval_html(net_now, dd_from_peak, profit_target, max_dd, account_size=0):
     cap = ""
     if account_size:
         bal = account_size + net_now
-        floor = account_size + (net_now + dd_from_peak) - md   # peak_balance − md
+        floor = account_size + floor_net
+        if min_buf is not None and min_buf <= 0:
+            extra = " · <b style='color:#dc2626'>⚠ touched floor intraday</b>"
+        elif min_buf is not None:
+            extra = f" · closest ${min_buf:,.0f} to floor"
+        else:
+            extra = ""
         cap = (f"<div class='cal-goal-cap'>Balance ${bal:,.0f} · floor "
-               f"${floor:,.0f} · real-time trailing (incl. unrealized)</div>")
+               f"${floor:,.0f}{extra}</div>")
     return (f"<div class='cal-goal'>"
             f"<div class='cal-goal-row'><span>Profit target ${pt:,.0f}</span>"
             f"<b class='cal-pnl {pcls}'>{p_txt}</b></div>"
@@ -1178,17 +1190,24 @@ def main():
             mdf = dp[dp["Day"].dt.to_period("M").astype(str) == msel]
             month_dollars = float(mdf["sum"].sum()) if len(mdf) else 0.0
             mtot_disp = float(mdf["uPnL"].sum()) if len(mdf) else 0.0
-            # Prop-evaluation (Bulenox-style): cumulative account P&L ($) and how
-            # far below the high-water mark. The peak is the INTRADAY high-water
-            # mark (real-time, incl. unrealized) = balance-before-trade + MFE($),
-            # so the trailing DD matches Bulenox. ex is sorted by EntryTime.
+            # Prop-evaluation (Bulenox 25K): cumulative account P&L ($) and how far
+            # below the high-water mark. Peak = INTRADAY high-water mark (real-time,
+            # incl. unrealized) = balance-before + MFE($). Floor locks at start.
+            # min_buf = closest the real-time low (balance-before − MAE) ever came
+            # to the (locked) floor — ≤0 means the floor was touched intraday.
             _prof = pd.to_numeric(ex["Profit"], errors="coerce").fillna(0)
             _mfe = pd.to_numeric(ex.get("MFE", 0), errors="coerce").fillna(0)
+            _mae = pd.to_numeric(ex.get("MAE", 0), errors="coerce").fillna(0)
             _closed = _prof.cumsum()
             _before = _closed.shift(1).fillna(0.0)
             eval_net = float(_closed.iloc[-1]) if len(_prof) else 0.0
-            _peak = float(pd.concat([_before + _mfe, _closed]).max()) if len(_prof) else 0.0
-            eval_dd = max(0.0, _peak - eval_net)
+            eval_dd = eval_min_buf = 0.0
+            if len(_prof):
+                _md = ss["f_max_dd"]
+                _peak_series = pd.concat([_before + _mfe, _closed], axis=1).max(axis=1).cummax()
+                _floor_series = (_peak_series - _md).clip(upper=0.0)
+                eval_dd = max(0.0, float(_peak_series.iloc[-1]) - eval_net)
+                eval_min_buf = float(((_before - _mae) - _floor_series).min())
             st.markdown(calendar_html(mdf, usym.strip() or "$", month=msel,
                                       today=pd.Timestamp.today().date(),
                                       goal_day=goal_day, goal_week=goal_week),
@@ -1254,7 +1273,7 @@ def main():
                              on_change=_toggle_watch)
             goalcol.markdown(
                 f"<div class='cal-goal-below'>"
-                f"{_eval_html(eval_net, eval_dd, ss['f_profit_target'], ss['f_max_dd'], ss['f_account_size'])}"
+                f"{_eval_html(eval_net, eval_dd, ss['f_profit_target'], ss['f_max_dd'], ss['f_account_size'], eval_min_buf)}"
                 f"</div>", unsafe_allow_html=True)
 
             # ── Below the calendar: KPI cards, then the Evaluation panel ──
