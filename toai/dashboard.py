@@ -961,11 +961,33 @@ def main():
                     encoding="utf-8", errors="ignore").splitlines() if a.strip()})
         except OSError:
             pass
-    acct_opts = ["All accounts"] + accounts
+    # Classify each account (Demo / Evaluation / Funded) — persisted in
+    # account_types.json, defaulted by name, editable in Filters & goals. Powers
+    # the grouped selector: All Evaluation / All Funded / All Demo / per-account.
+    import json
+    _types_file = config.DATA_ROOT / "account_types.json"
+    acct_types_saved = {}
+    if _types_file.exists():
+        try:
+            acct_types_saved = json.loads(_types_file.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            acct_types_saved = {}
+
+    def _default_type(a):
+        al = str(a).lower()
+        return "Demo" if ("sim" in al or "demo" in al or "playback" in al) else "Evaluation"
+    TYPE_ORDER = ["Evaluation", "Funded", "Demo"]
+    acct_type = {a: acct_types_saved.get(a, _default_type(a)) for a in accounts}
+    types_present = [t for t in TYPE_ORDER if any(v == t for v in acct_type.values())]
+    acct_opts = (["All accounts"] + [f"All {t}" for t in types_present] + accounts)
     if ss.get("f_account") not in acct_opts:
         ss["f_account"] = "All accounts"
 
-    def _acct_label(a):  # "BX104751-01!Bulenox!Bulenox" -> "Bulenox · BX104751-01"
+    def _acct_label(a):
+        if a == "All accounts":
+            return "📊 All accounts"
+        if a.startswith("All ") and a[4:] in TYPE_ORDER:
+            return f"▸ All {a[4:]} accounts"
         parts = [p for p in str(a).split("!") if p]
         return f"{parts[1]} · {parts[0]}" if len(parts) >= 2 else a
 
@@ -975,8 +997,14 @@ def main():
     _ac[1].markdown("<div class='acct-lbl'>Account</div>", unsafe_allow_html=True)
     _ac[2].selectbox("Account", acct_opts, key="f_account",
                      format_func=_acct_label, label_visibility="collapsed")
-    if ss["f_account"] != "All accounts" and "Account" in ex.columns:
-        ex = ex[ex["Account"].astype(str) == ss["f_account"]].reset_index(drop=True)
+
+    _sel = ss["f_account"]
+    if "Account" in ex.columns and _sel != "All accounts":
+        if _sel.startswith("All ") and _sel[4:] in TYPE_ORDER:
+            _keep = [a for a in accounts if acct_type[a] == _sel[4:]]
+            ex = ex[ex["Account"].astype(str).isin(_keep)].reset_index(drop=True)
+        else:
+            ex = ex[ex["Account"].astype(str) == _sel].reset_index(drop=True)
 
     def u(dollars):
         return to_units(dollars, inst, unit)
@@ -1722,6 +1750,26 @@ def main():
         ec[0].number_input("Account size ($)", step=5000, key="f_account_size")
         ec[1].number_input("Profit target ($)", step=250, key="f_profit_target")
         ec[2].number_input("Max trailing DD ($)", step=250, key="f_max_dd")
+        # Account type tagging — drives the grouped selector (All Evaluation /
+        # All Funded / All Demo). Saved to account_types.json.
+        if accounts:
+            st.markdown("**Account types** — group accounts for the selector")
+            tcols = st.columns(min(len(accounts), 4))
+            changed = {}
+            for i, a in enumerate(accounts):
+                pick = tcols[i % len(tcols)].selectbox(
+                    _acct_label(a), TYPE_ORDER, index=TYPE_ORDER.index(acct_type[a]),
+                    key=f"acctype_{a}")
+                if pick != acct_types_saved.get(a):
+                    changed[a] = pick
+            if changed:
+                merged = dict(acct_types_saved)
+                merged.update({a: ss[f"acctype_{a}"] for a in accounts})
+                try:
+                    _types_file.write_text(json.dumps(merged, indent=2),
+                                           encoding="utf-8")
+                except OSError:
+                    pass
 
 
 def _calendar_grid(mdf):
