@@ -31,11 +31,18 @@ rem ---- 2) the code (in git too, but keep .git + uncommitted work just in case)
 echo [2/2] C:\lior     ->  %DEST%\lior
 robocopy "C:\lior" "%DEST%\lior" /E /R:2 /W:2 /MT:16 /NFL /NDL /NP /XD __pycache__ node_modules .venv
 
+rem ---- 3) drop the installer + restore guide at the backup ROOT for easy access ----
+copy /Y "C:\lior\TOAI_Install.bat" "%DEST%\" >nul 2>&1
+copy /Y "C:\lior\TOAI_Install.ps1" "%DEST%\" >nul 2>&1
+if exist "C:\LIOR_ML\RESTORE_README.md" copy /Y "C:\LIOR_ML\RESTORE_README.md" "%DEST%\" >nul 2>&1
+
 echo.
 echo ============================================================
 echo  Backup complete:  %DEST%
-echo    - LIOR_ML  (data / models / journals)
-echo    - lior     (code + .git)
+echo    - LIOR_ML            (data / models / journals)
+echo    - lior               (code + .git)
+echo    - TOAI_Install.bat   (run this first on the new PC)
+echo    - RESTORE_README.md
 echo  Verify the folder opened below, THEN format.
 echo ============================================================
 explorer "%DEST%"
