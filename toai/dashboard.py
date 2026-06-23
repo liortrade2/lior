@@ -978,8 +978,9 @@ def main():
         return "Demo" if ("sim" in al or "demo" in al or "playback" in al) else "Evaluation"
     TYPE_ORDER = ["Evaluation", "Funded", "Demo"]
     acct_type = {a: acct_types_saved.get(a, _default_type(a)) for a in accounts}
-    types_present = [t for t in TYPE_ORDER if any(v == t for v in acct_type.values())]
-    acct_opts = (["All accounts"] + [f"All {t}" for t in types_present] + accounts)
+    # Always offer all three group options (even before an account of that type
+    # exists) so e.g. "All Funded" is ready the moment an eval gets funded.
+    acct_opts = (["All accounts"] + [f"All {t}" for t in TYPE_ORDER] + accounts)
     if ss.get("f_account") not in acct_opts:
         ss["f_account"] = "All accounts"
 
