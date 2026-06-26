@@ -1358,24 +1358,31 @@ def main():
             _live_status()
 
             # Strategy vs TOAI — cumulative $ of taking EVERY strategy signal
-            # (grey) vs only the trades TOAI's gate ALLOWs (green). The shaded gap
-            # is the money the ML filter added (green) or cost (red).
+            # (grey) vs only the trades TOAI's gate ALLOWs (green). Driven by the
+            # SLIDER value (thr_val), so dragging it previews the effect live — an
+            # indication of which threshold helps most before you Apply to chart.
             if scored is not None and len(scored):
-                _thr_live = config.get_threshold(d)
+                _thr_view = float(thr_val)
+                _applied = config.get_threshold(d)
                 try:
-                    _all_eq, _allow_eq = scorecard.equity_curves(scored, _thr_live)
+                    _all_eq, _allow_eq = scorecard.equity_curves(scored, _thr_view)
                 except Exception:
                     _all_eq = _allow_eq = None
                 if _all_eq is not None and len(_all_eq):
                     _n = len(_all_eq)
                     _n_allow = int((pd.to_numeric(scored["Score"], errors="coerce")
-                                    >= _thr_live).sum())
+                                    >= _thr_view).sum())
                     _diff = float(_allow_eq[-1] - _all_eq[-1])
                     _src = "realized fills" if source == "Realized fills" else "backtest"
                     _fill = ("rgba(22,163,74,0.12)" if _diff >= 0
                              else "rgba(239,68,68,0.10)")
-                    st.markdown("<div class='ctl-chart-title'>Strategy vs TOAI"
-                                " — cumulative $</div>", unsafe_allow_html=True)
+                    _sync = ("✅ live on chart" if int(_thr_view) == int(_applied)
+                             else f"● preview — chart still on {int(_applied):g}, click Apply")
+                    st.markdown("<div class='ctl-chart-title'>Strategy vs TOAI "
+                                f"— at threshold {int(_thr_view)} "
+                                f"<span style='font-weight:600;font-size:.8rem;"
+                                f"color:#6b7280'>· {_sync}</span></div>",
+                                unsafe_allow_html=True)
                     figc = go.Figure()
                     figc.add_trace(go.Scatter(
                         y=_all_eq, name="Strategy · all signals", mode="lines",
@@ -1394,16 +1401,17 @@ def main():
                     st.plotly_chart(figc, width='stretch')
                     if _n_allow == 0:
                         st.caption(
-                            f"⚠ At threshold **{_thr_live:g}**, TOAI would **skip all "
-                            f"{_n}** past {_src} — none scored ≥ {_thr_live:g}, so the "
-                            f"green line stays flat at 0. Lower the threshold to let "
-                            f"trades through.")
+                            f"⚠ At threshold **{int(_thr_view)}**, TOAI would **skip "
+                            f"all {_n}** past {_src} — none scored ≥ {int(_thr_view)}, "
+                            f"so the green line stays flat at 0. **Drag the slider "
+                            f"down** to let trades through and watch the green line.")
                     else:
                         st.caption(
                             f"TOAI allowed **{_n_allow} of {_n}** {_src} at threshold "
-                            f"**{_thr_live:g}** — the gate "
+                            f"**{int(_thr_view)}** — the gate "
                             f"{'added' if _diff >= 0 else 'cost'} **{_diff:+,.0f}$** "
-                            f"vs taking every signal.")
+                            f"vs taking every signal. **Drag the slider** to find the "
+                            f"best, then **Apply to chart**.")
 
         # ── Training timeframe ──
         tf_opts = ["Auto", "1", "2", "3", "5", "15"]
