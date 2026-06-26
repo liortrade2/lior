@@ -1424,7 +1424,8 @@ def main():
         except Exception:
             reg = {}
         active = next((s for s, v in reg.items() if v.get("active")), None)
-        _vsum = (f"{reg[active].get('name', active)} · WF {reg[active].get('wf_mean', 0):.2f}"
+        _vsum = (f"{reg[active].get('name', active)} · {reg[active].get('saved', '?')} "
+                 f"· WF {reg[active].get('wf_mean', 0):.2f}"
                  if active else ("none active" if reg else "no variants"))
         if _section("ctl_variants", "Active model / variants", "🧬", _vsum):
             if reg:
@@ -1433,8 +1434,11 @@ def main():
                 def _vlabel(s):
                     v = reg[s]
                     dot = "● " if s == active else ""
-                    return (f"{dot}{v.get('name', s)}  ·  PMV {v.get('pmv', 0):.3f} · "
-                            f"WF {v.get('wf_mean', 0):.3f} · {v.get('timeframe', '?')}m")
+                    # Identify by NAME + DATE so near-duplicate names are
+                    # distinguishable (e.g. two re-trains of the same strategy).
+                    return (f"{dot}{v.get('name', s)}  ·  🕒 {v.get('saved', '?')}  ·  "
+                            f"PMV {v.get('pmv', 0):.3f} · WF {v.get('wf_mean', 0):.3f} · "
+                            f"{v.get('timeframe', '?')}m")
                 pick = st.radio("Choose the variant to score live with", slugs,
                                 index=slugs.index(active) if active in slugs else 0,
                                 format_func=_vlabel, key="ctl_variant")
