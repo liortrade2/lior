@@ -579,10 +579,6 @@ hr { margin: 0.5rem 0; border-color: #e5e7eb; }
   margin-top:10px; padding-top:10px; border-top:1px solid #eef0f3; }
 .cal-foot span { color:#6b7280; font-size:.8rem; font-weight:600; }
 .cal-foot b { font-size:1rem; font-weight:800; margin:0; }
-/* Monthly-goal tracker — sits in its own row below the calendar, hugging right */
-.cal-goal-below { display:flex; justify-content:flex-start; margin-top:10px;
-  margin-left:-120px; }  /* left edge ("Monthly goal") sits at X≈400 */
-.cal-goal-below .cal-goal { width:600px; max-width:none; }  /* span 600px → $-values right edge at X≈1000 */
 .cal-goal { width:100%; }
 /* Eval bar docked in the top account row (right of the Account selector) */
 .acct-eval { width:100%; }
