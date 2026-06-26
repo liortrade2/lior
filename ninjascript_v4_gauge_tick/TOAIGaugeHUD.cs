@@ -151,7 +151,7 @@ namespace NinjaTrader.NinjaScript.Indicators
             if (RenderTarget == null || ChartPanel == null) return;
 
             float x = (float)ChartPanel.X + 14f;
-            float y = (float)ChartPanel.Y + 12f;
+            float y = (float)ChartPanel.Y + 22f;   // +10px lower: clears the chart's indicator title
             float w = 332f, h = 90f;
 
             SharpDX.Color accent =
