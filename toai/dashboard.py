@@ -590,6 +590,13 @@ hr { margin: 0.5rem 0; border-color: #e5e7eb; }
 /* Top account row: inset 16px each side so its left (Account) and right (eval
    bar) edges line up with the calendar card's inner frame below it. */
 .st-key-acctrow { padding-left:16px; padding-right:16px; }
+/* Compact live-status cards (Control → Live status) — short, readable, not tall. */
+.ctl-livecards { display:flex; gap:10px; margin:2px 0 4px; }
+.ctl-livecards > div { flex:1; background:#fff; border:1px solid #eceef1;
+  border-radius:10px; padding:7px 12px; box-shadow:0 1px 2px rgba(16,24,40,.04); }
+.ctl-livecards span { color:#6b7280; font-size:.72rem; font-weight:600; display:block; }
+.ctl-livecards b { font-size:1.5rem; font-weight:800; line-height:1.15; }
+.ctl-livecards .sub { font-size:.7rem; font-weight:700; }
 /* Collapsible section headers (Control etc.) — clickable list-row look. */
 [class*="st-key-btn_sec_"] button {
   justify-content:flex-start !important; text-align:left;
@@ -715,6 +722,37 @@ def _splitbar_svg(win, loss, w=92, h=9):
     return (f'<svg width="{w}" height="{h}"><rect x="0" y="0" width="{wg:.1f}" height="{h}" '
             f'rx="3" fill="#16a34a"/><rect x="{wg:.1f}" y="0" width="{w-wg:.1f}" height="{h}" '
             f'rx="3" fill="#ef4444"/></svg>')
+
+
+def _score_gauge_svg(score, threshold):
+    """Wide horizontal 0-100 gauge: the live score as a coloured fill plus a
+    vertical marker at the gate threshold. Green when score >= threshold (ALLOW),
+    red when below (SKIP). Scales to the container width."""
+    import math
+    has = score is not None and not (isinstance(score, float) and math.isnan(score))
+    s = max(0.0, min(100.0, float(score))) if has else 0.0
+    t = max(0.0, min(100.0, float(threshold)))
+    color = "#16a34a" if (has and s >= t) else "#ef4444"
+    W, H, x0, barY, barH = 1000, 96, 12, 40, 30
+    span = W - 2 * x0
+    sx = x0 + span * s / 100.0
+    tx = x0 + span * t / 100.0
+    label = f"{s:.1f}" if has else "—"
+    lx = min(max(sx, x0 + 26), W - x0 - 26)
+    return (
+        f'<svg viewBox="0 0 {W} {H}" width="100%" preserveAspectRatio="xMidYMid meet" '
+        f'xmlns="http://www.w3.org/2000/svg">'
+        f'<rect x="{x0}" y="{barY}" width="{span}" height="{barH}" rx="15" fill="#eef0f3"/>'
+        f'<rect x="{x0}" y="{barY}" width="{max(0.0, sx - x0):.1f}" height="{barH}" rx="15" fill="{color}"/>'
+        f'<line x1="{tx:.1f}" y1="{barY - 10}" x2="{tx:.1f}" y2="{barY + barH + 10}" '
+        f'stroke="#111827" stroke-width="3"/>'
+        f'<text x="{tx:.1f}" y="{barY - 16}" text-anchor="middle" font-size="22" '
+        f'font-weight="700" fill="#111827">threshold {t:.0f}</text>'
+        f'<text x="{lx:.1f}" y="{barY + barH + 28}" text-anchor="middle" font-size="30" '
+        f'font-weight="800" fill="{color}">{label}</text>'
+        f'<text x="{x0}" y="{H - 6}" font-size="16" fill="#9aa3ad">0</text>'
+        f'<text x="{W - x0}" y="{H - 6}" text-anchor="end" font-size="16" fill="#9aa3ad">100</text>'
+        f'</svg>')
 
 
 def _kpi_card_one(c) -> str:
@@ -1238,7 +1276,7 @@ def main():
         thr = config.get_threshold(d)
 
         # Open all / Collapse all — one-click control over the whole section list.
-        _ctl_secs = ["ctl_live", "ctl_gate", "ctl_tf", "ctl_variants",
+        _ctl_secs = ["ctl_live", "ctl_tf", "ctl_variants",
                      "ctl_mode", "ctl_actions", "ctl_watch", "ctl_reset"]
         _oc = st.columns([1.1, 1.3, 6])
         if _oc[0].button("⛶ Open all", key="ctl_openall", width='stretch'):
@@ -1257,7 +1295,22 @@ def main():
             _verdict = "—"
         if _section("ctl_live", "Live status", "🟢",
                     f"score {_sc_txt} · {_verdict}"):
-            auto = st.checkbox("🔄 Auto-refresh every 2s", value=False, key="ctl_auto")
+            # Threshold control: a slider you drag, with the gate marker shown on
+            # the score gauge below; "Apply to chart" writes <inst>/threshold.txt
+            # which NinjaTrader reads — so it survives an F5/reload of the chart.
+            applied_thr = config.get_threshold(d)
+            ss.setdefault("ctl_thr", int(applied_thr))
+            top = st.columns([2.3, 5, 1.7], vertical_alignment="bottom")
+            auto = top[0].checkbox("🔄 Auto-refresh 2s", value=False, key="ctl_auto")
+            thr_val = top[1].slider("Gate threshold — min ML score to ALLOW",
+                                    0, 100, key="ctl_thr")
+            if top[2].button("✅ Apply to chart", width='stretch', key="ctl_thr_apply"):
+                config.set_threshold(float(thr_val), d)
+                applied_thr = float(thr_val)
+                st.toast(f"Threshold {thr_val:g} pushed to the chart.", icon="✅")
+            if int(thr_val) != int(applied_thr):
+                st.caption(f"● Pending — the chart is still using "
+                           f"{int(applied_thr)}. Click **Apply to chart**.")
 
             @st.fragment(run_every=2 if auto else None)
             def _live_status():
@@ -1265,34 +1318,36 @@ def main():
                     sc_txt = (d / "score.txt").read_text(encoding="utf-8", errors="ignore").strip()
                 except OSError:
                     sc_txt = "—"
-                t = config.get_threshold(d)
                 try:
-                    verdict = "ALLOW" if float(sc_txt) >= t else "SKIP"
+                    score = float(sc_txt)
                 except ValueError:
-                    verdict = "—"
-                cc = st.columns(4)
-                cc[0].metric("Live score", sc_txt)
-                cc[1].metric("Threshold", f"{t:g}")
-                cc[2].metric("Gate", verdict)
+                    score = None
+                t = ss.get("ctl_thr", applied_thr)
+                verdict = ("ALLOW" if (score is not None and score >= t)
+                           else "SKIP" if score is not None else "—")
+                vcol = ("#16a34a" if verdict == "ALLOW"
+                        else "#ef4444" if verdict == "SKIP" else "#6b7280")
+                # Visual gauge: where the live score sits vs the threshold marker.
+                st.markdown(_score_gauge_svg(score, t), unsafe_allow_html=True)
                 try:
                     from toai import health
                     h = health.check(inst)
-                    cc[3].metric("Model age",
-                                 f"{h['age_days']}d" if h.get("age_days") is not None else "—",
-                                 "stale" if h.get("stale") else "ok")
-                    for m in h.get("messages", []):
-                        st.caption("⚠ " + m)
                 except Exception:
-                    pass
+                    h = {}
+                age = (f"{h['age_days']}d" if h.get("age_days") is not None else "—")
+                age_sub = "stale" if h.get("stale") else "ok"
+                age_col = "#ef4444" if h.get("stale") else "#16a34a"
+                st.markdown(
+                    "<div class='ctl-livecards'>"
+                    f"<div><span>Live score</span><b style='color:{vcol}'>{sc_txt}</b></div>"
+                    f"<div><span>Threshold</span><b>{t:g}</b></div>"
+                    f"<div><span>Gate</span><b style='color:{vcol}'>{verdict}</b></div>"
+                    f"<div><span>Model age</span><b>{age}</b>"
+                    f"<span class='sub' style='color:{age_col}'>{age_sub}</span></div>"
+                    "</div>", unsafe_allow_html=True)
+                for m in h.get("messages", []):
+                    st.caption("⚠ " + m)
             _live_status()
-
-        # ── Gate threshold ──
-        if _section("ctl_gate", "Gate threshold", "🎯", f"min score {int(thr)}"):
-            tcol = st.columns([3, 1])
-            newthr = tcol[0].number_input("min ML score to ALLOW", 0, 100, int(thr), key="ctl_thr")
-            if tcol[1].button("Apply to live", width='stretch'):
-                config.set_threshold(float(newthr), d)
-                st.success(f"Live threshold for {inst} set to {newthr:g}.")
 
         # ── Training timeframe ──
         tf_opts = ["Auto", "1", "2", "3", "5", "15"]
