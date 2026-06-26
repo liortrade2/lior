@@ -1608,51 +1608,53 @@ def main():
             # TRUST badge — is the live score reliable? Read from the calibrated
             # model bundle. Old (pre-calibration) bundles lack these fields and
             # simply show nothing.
-            try:
-                import joblib
-                _b = joblib.load(_inst_dir(inst) / "model.pkl")
-            except Exception:
-                _b = {}
-            _trust = _b.get("trust")
-            if _trust:
-                _color = {"good": GREEN, "weak": "#d97706", "uncalibrated": "#d97706",
-                          "none": RED, "unknown": "#6b7280"}.get(_trust, "#6b7280")
-                _msg = {"good": "score is reliable",
-                        "weak": "small edge — use a soft threshold",
-                        "uncalibrated": "ranks ok but the % is off",
-                        "none": "out-of-sample ≈ random — the % ≈ base rate",
-                        "unknown": "not enough data for walk-forward"}.get(_trust, "")
-                _p = [f"<b style='color:{_color}'>TRUST: {_trust}</b> — {_msg}"]
-                if _b.get("wf_mean") is not None:
-                    _p.append(f"WF&nbsp;AUC&nbsp;{_b['wf_mean']:.2f}")
-                if _b.get("calibrated"):
-                    _p.append("calibrated&nbsp;✓")
-                if _b.get("wf_ece") is not None:
-                    _p.append(f"ECE&nbsp;{_b['wf_ece']:.2f}")
-                _rev = [f for f in (_b.get("features") or [])
-                        if f in ("BodyDir_ATR", "ClosePos", "LowerWick_ATR",
-                                 "UpperWick_ATR", "DipDepth_ATR")]
-                _p.append("reversion&nbsp;features&nbsp;"
-                          + ("ON" if _rev else "OFF"))
-                st.markdown("<div style='font-size:0.85rem;color:#6b7280;"
-                            "margin:-4px 0 6px'>" + "&nbsp;·&nbsp;".join(_p)
-                            + "</div>", unsafe_allow_html=True)
-                if _trust in ("none", "weak"):
-                    st.caption("⚠ The gate adds little or no edge on current data — "
-                               "collect more trades, and re-export bars (OHLC) to "
-                               "enable the candle-shape mean-reversion features, "
-                               "before trusting the score.")
+            if _section("mle_summary", "Summary & trust", "📊", default_open=True):
+                try:
+                    import joblib
+                    _b = joblib.load(_inst_dir(inst) / "model.pkl")
+                except Exception:
+                    _b = {}
+                _trust = _b.get("trust")
+                if _trust:
+                    _color = {"good": GREEN, "weak": "#d97706", "uncalibrated": "#d97706",
+                              "none": RED, "unknown": "#6b7280"}.get(_trust, "#6b7280")
+                    _msg = {"good": "score is reliable",
+                            "weak": "small edge — use a soft threshold",
+                            "uncalibrated": "ranks ok but the % is off",
+                            "none": "out-of-sample ≈ random — the % ≈ base rate",
+                            "unknown": "not enough data for walk-forward"}.get(_trust, "")
+                    _p = [f"<b style='color:{_color}'>TRUST: {_trust}</b> — {_msg}"]
+                    if _b.get("wf_mean") is not None:
+                        _p.append(f"WF&nbsp;AUC&nbsp;{_b['wf_mean']:.2f}")
+                    if _b.get("calibrated"):
+                        _p.append("calibrated&nbsp;✓")
+                    if _b.get("wf_ece") is not None:
+                        _p.append(f"ECE&nbsp;{_b['wf_ece']:.2f}")
+                    _rev = [f for f in (_b.get("features") or [])
+                            if f in ("BodyDir_ATR", "ClosePos", "LowerWick_ATR",
+                                     "UpperWick_ATR", "DipDepth_ATR")]
+                    _p.append("reversion&nbsp;features&nbsp;"
+                              + ("ON" if _rev else "OFF"))
+                    st.markdown("<div style='font-size:0.85rem;color:#6b7280;"
+                                "margin:-4px 0 6px'>" + "&nbsp;·&nbsp;".join(_p)
+                                + "</div>", unsafe_allow_html=True)
+                    if _trust in ("none", "weak"):
+                        st.caption("⚠ The gate adds little or no edge on current data — "
+                                   "collect more trades, and re-export bars (OHLC) to "
+                                   "enable the candle-shape mean-reversion features, "
+                                   "before trusting the score.")
 
-            c1, c2, c3 = st.columns(3)
-            c1.metric("ALLOW expectancy", f"${sc.allow.expectancy:+,.2f}",
-                      f"{sc.allow.win_rate:.0f}% win")
-            c2.metric("Edge per taken trade", f"${sc.edge_per_trade:+,.2f}",
-                      "vs trading everything")
-            c3.metric("Selectivity", f"{sc.selectivity:.0f}%",
-                      f"{sc.allow.n} of {sc.all.n} trades")
+                c1, c2, c3 = st.columns(3)
+                c1.metric("ALLOW expectancy", f"${sc.allow.expectancy:+,.2f}",
+                          f"{sc.allow.win_rate:.0f}% win")
+                c2.metric("Edge per taken trade", f"${sc.edge_per_trade:+,.2f}",
+                          "vs trading everything")
+                c3.metric("Selectivity", f"{sc.selectivity:.0f}%",
+                          f"{sc.allow.n} of {sc.all.n} trades")
 
             # Expectancy by score bucket — the core ML-separation view.
-            if sc.buckets:
+            if sc.buckets and _section("mle_buckets", "Expectancy by score bucket",
+                                       "📶", default_open=True):
                 b = pd.DataFrame([{
                     "Bucket": f"{x.lo:g}-{x.hi:g}", "Expectancy": x.expectancy,
                     "Win%": x.win_rate, "N": x.n} for x in sc.buckets])
@@ -1671,21 +1673,22 @@ def main():
                            "trades from bad by money — the thing no external journal can show.")
 
             # Equity: ALLOW-only vs trading everything.
-            try:
-                eq = scorecard.equity_curves(scored, threshold)
-                if eq is not None:
-                    all_eq, allow_eq = eq
-                    fig2 = go.Figure()
-                    fig2.add_trace(go.Scatter(y=all_eq, name="Trade everything",
-                                              line=dict(color=MUTED)))
-                    fig2.add_trace(go.Scatter(y=allow_eq, name="ALLOW only",
-                                              line=dict(color=GREEN, width=2)))
-                    fig2.update_layout(title="Equity — ALLOW only vs trading everything",
-                                       height=340, margin=dict(t=40),
-                                       yaxis_title="cumulative $")
-                    st.plotly_chart(fig2, width='stretch')
-            except Exception:
-                pass
+            if _section("mle_equity", "Equity — ALLOW only vs trading everything", "📈"):
+                try:
+                    eq = scorecard.equity_curves(scored, threshold)
+                    if eq is not None:
+                        all_eq, allow_eq = eq
+                        fig2 = go.Figure()
+                        fig2.add_trace(go.Scatter(y=all_eq, name="Trade everything",
+                                                  line=dict(color=MUTED)))
+                        fig2.add_trace(go.Scatter(y=allow_eq, name="ALLOW only",
+                                                  line=dict(color=GREEN, width=2)))
+                        fig2.update_layout(title="Equity — ALLOW only vs trading everything",
+                                           height=340, margin=dict(t=40),
+                                           yaxis_title="cumulative $")
+                        st.plotly_chart(fig2, width='stretch')
+                except Exception:
+                    pass
 
     # ---- TAB 2: breakdowns (realized frame) ----
     elif view == "🔬 Breakdowns":
@@ -1694,58 +1697,59 @@ def main():
         else:
             exn = ex.copy()
             exn["Profit"] = pd.to_numeric(exn["Profit"], errors="coerce")
-            left, right = st.columns(2)
+            if _section("bd_grid", "P&L breakdowns", "🔬", default_open=True):
+                left, right = st.columns(2)
 
-            with left:
-                by_hour = exn.groupby("Hour")["Profit"].agg(["sum", "count"]).reset_index()
-                fig = go.Figure(go.Bar(
-                    x=by_hour["Hour"], y=by_hour["sum"],
-                    marker_color=[GREEN if v >= 0 else RED for v in by_hour["sum"]],
-                    text=by_hour["count"], textposition="outside"))
-                fig.update_layout(title="P&L by entry hour (ET)", height=320,
-                                  xaxis_title="hour", yaxis_title="$", margin=dict(t=40))
-                st.plotly_chart(fig, width='stretch')
-
-                if exn["Variant"].notna().any():
-                    bv = exn.groupby(exn["Variant"].fillna("—"))["Profit"].agg(
-                        ["sum", "count"]).reset_index()
+                with left:
+                    by_hour = exn.groupby("Hour")["Profit"].agg(["sum", "count"]).reset_index()
                     fig = go.Figure(go.Bar(
-                        x=bv["sum"], y=bv["Variant"], orientation="h",
-                        marker_color=[GREEN if v >= 0 else RED for v in bv["sum"]],
-                        text=bv["count"], textposition="outside"))
-                    fig.update_layout(title="P&L by strategy/variant", height=320,
-                                      xaxis_title="$", margin=dict(t=40))
+                        x=by_hour["Hour"], y=by_hour["sum"],
+                        marker_color=[GREEN if v >= 0 else RED for v in by_hour["sum"]],
+                        text=by_hour["count"], textposition="outside"))
+                    fig.update_layout(title="P&L by entry hour (ET)", height=320,
+                                      xaxis_title="hour", yaxis_title="$", margin=dict(t=40))
                     st.plotly_chart(fig, width='stretch')
 
-            with right:
-                # MAE/MFE vs outcome, coloured by ML score — does the model pick
-                # trades that go less underwater?
-                if {"MAE", "MFE"}.issubset(exn.columns):
-                    mae = pd.to_numeric(exn["MAE"], errors="coerce")
-                    col = pd.to_numeric(exn.get("Score"), errors="coerce")
-                    fig = go.Figure(go.Scatter(
-                        x=mae, y=exn["Profit"], mode="markers",
-                        marker=dict(size=11, color=col, colorscale="Viridis",
-                                    showscale=bool(col.notna().any()),
-                                    colorbar=dict(title="ML"), line=dict(width=1)),
-                        text=[f"score {s}" for s in exn.get("Score", "")]))
-                    fig.update_layout(title="MAE vs P&L (colour = ML score)", height=320,
-                                      xaxis_title="MAE", yaxis_title="$", margin=dict(t=40))
-                    fig.add_hline(y=0, line_color=MUTED)
-                    st.plotly_chart(fig, width='stretch')
+                    if exn["Variant"].notna().any():
+                        bv = exn.groupby(exn["Variant"].fillna("—"))["Profit"].agg(
+                            ["sum", "count"]).reset_index()
+                        fig = go.Figure(go.Bar(
+                            x=bv["sum"], y=bv["Variant"], orientation="h",
+                            marker_color=[GREEN if v >= 0 else RED for v in bv["sum"]],
+                            text=bv["count"], textposition="outside"))
+                        fig.update_layout(title="P&L by strategy/variant", height=320,
+                                          xaxis_title="$", margin=dict(t=40))
+                        st.plotly_chart(fig, width='stretch')
 
-                if exn["RMultiple"].notna().any():
-                    fig = go.Figure(go.Histogram(x=exn["RMultiple"], nbinsx=20,
-                                                 marker_color=ACCENT))
-                    fig.update_layout(title="R-multiple distribution", height=320,
-                                      xaxis_title="R", margin=dict(t=40))
-                    st.plotly_chart(fig, width='stretch')
+                with right:
+                    # MAE/MFE vs outcome, coloured by ML score — does the model pick
+                    # trades that go less underwater?
+                    if {"MAE", "MFE"}.issubset(exn.columns):
+                        mae = pd.to_numeric(exn["MAE"], errors="coerce")
+                        col = pd.to_numeric(exn.get("Score"), errors="coerce")
+                        fig = go.Figure(go.Scatter(
+                            x=mae, y=exn["Profit"], mode="markers",
+                            marker=dict(size=11, color=col, colorscale="Viridis",
+                                        showscale=bool(col.notna().any()),
+                                        colorbar=dict(title="ML"), line=dict(width=1)),
+                            text=[f"score {s}" for s in exn.get("Score", "")]))
+                        fig.update_layout(title="MAE vs P&L (colour = ML score)", height=320,
+                                          xaxis_title="MAE", yaxis_title="$", margin=dict(t=40))
+                        fig.add_hline(y=0, line_color=MUTED)
+                        st.plotly_chart(fig, width='stretch')
+
+                    if exn["RMultiple"].notna().any():
+                        fig = go.Figure(go.Histogram(x=exn["RMultiple"], nbinsx=20,
+                                                     marker_color=ACCENT))
+                        fig.update_layout(title="R-multiple distribution", height=320,
+                                          xaxis_title="R", margin=dict(t=40))
+                        st.plotly_chart(fig, width='stretch')
 
             # Exit efficiency — how much of each trade's best move it captured,
             # coloured by ML score. Low bars = giving profit back before exit.
             eff = exit_efficiency(ex, inst)
             eff = eff[eff["Efficiency"].notna()] if not eff.empty else eff
-            if not eff.empty:
+            if not eff.empty and _section("bd_exit", "Exit efficiency", "🎯"):
                 col = pd.to_numeric(eff["Score"], errors="coerce")
                 fig = go.Figure(go.Bar(
                     x=[f"{t:%m-%d %H:%M}" for t in eff["EntryTime"]],
@@ -1772,20 +1776,21 @@ def main():
             dp["Day"] = pd.to_datetime(dp["Day"])
             dp["uPnL"] = dp["sum"].apply(u)
             # Month calendar heatmap (week rows × weekday cols).
-            months = sorted(dp["Day"].dt.to_period("M").astype(str).unique())
-            msel = st.selectbox("Month", months, index=len(months) - 1)
-            mdf = dp[dp["Day"].dt.to_period("M").astype(str) == msel]
-            z, txt = _calendar_grid(mdf)
-            fig = go.Figure(go.Heatmap(
-                z=z, x=["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
-                text=txt, texttemplate="%{text}", colorscale="RdYlGn", zmid=0,
-                showscale=True, hoverinfo="text"))
-            fig.update_layout(title=f"Daily net P&L — {msel} ({usym.strip() or '$'})",
-                              height=300, margin=dict(t=40), yaxis=dict(autorange="reversed"))
-            st.plotly_chart(fig, width='stretch')
+            if _section("cal_heat", "Month heatmap", "📅", default_open=True):
+                months = sorted(dp["Day"].dt.to_period("M").astype(str).unique())
+                msel = st.selectbox("Month", months, index=len(months) - 1)
+                mdf = dp[dp["Day"].dt.to_period("M").astype(str) == msel]
+                z, txt = _calendar_grid(mdf)
+                fig = go.Figure(go.Heatmap(
+                    z=z, x=["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+                    text=txt, texttemplate="%{text}", colorscale="RdYlGn", zmid=0,
+                    showscale=True, hoverinfo="text"))
+                fig.update_layout(title=f"Daily net P&L — {msel} ({usym.strip() or '$'})",
+                                  height=300, margin=dict(t=40), yaxis=dict(autorange="reversed"))
+                st.plotly_chart(fig, width='stretch')
 
             s = seasonality(ex)
-            if s:
+            if s and _section("cal_season", "Seasonality", "🗓"):
                 a, bcol = st.columns(2)
                 for cc, key, title in ((a, "dow", "P&L by weekday"),
                                        (bcol, "month", "P&L by month")):
