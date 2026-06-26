@@ -38,10 +38,16 @@ namespace NinjaTrader.NinjaScript.Indicators
         private const string PlaybackRoot = @"C:\LIOR_ML_PLAYBACK";
         private string RootDir = LiveRoot;
         private string ThresholdFile = LiveRoot + @"\threshold.txt";
-        private string scoreFile, entryWindowFile, modeFile;
+        private string scoreFile, entryWindowFile, modeFile, instThresholdFile;
 
         [NinjaScriptProperty]
         public double MinProbabilityThreshold { get; set; } = 55.0;
+
+        // Top-right "MEAN REVERSION / STANDARD" badge in the gauge panel. Off by
+        // default — the strategy mode is shown in the dashboard, so it's
+        // redundant on the chart. Tick to bring it back.
+        [NinjaScriptProperty]
+        public bool ShowModeBadge { get; set; } = false;
 
         // Read scores from C:\LIOR_ML_PLAYBACK on a Market-Replay chart.
         [NinjaScriptProperty]
@@ -53,6 +59,7 @@ namespace NinjaTrader.NinjaScript.Indicators
         private bool prevPassed;
         private DateTime flashUntil = DateTime.MinValue;
         private DateTime lastScoreStamp = DateTime.MinValue;
+        private DateTime lastThrStamp = DateTime.MinValue;
         private string mode = "";                       // "Mean Reversion" / "Standard"
         private DateTime lastModeStamp = DateTime.MinValue;
         private readonly System.Collections.Generic.List<double> hist =
@@ -78,7 +85,9 @@ namespace NinjaTrader.NinjaScript.Indicators
                 scoreFile = dataDir + @"\score.txt";
                 entryWindowFile = dataDir + @"\entry_window.txt";
                 modeFile = dataDir + @"\mode.txt";
-                threshold = TOAIExporterGaugeTick.ReadThreshold(ThresholdFile, MinProbabilityThreshold);
+                instThresholdFile = dataDir + @"\threshold.txt";   // per-instrument overrides root
+                threshold = TOAIExporterGaugeTick.ReadThreshold(instThresholdFile,
+                    TOAIExporterGaugeTick.ReadThreshold(ThresholdFile, MinProbabilityThreshold));
                 hasWindow = TOAIExporterGaugeTick.TryReadWindow(entryWindowFile, out winLo, out winHi);
             }
         }
@@ -89,7 +98,8 @@ namespace NinjaTrader.NinjaScript.Indicators
 
             if (IsFirstTickOfBar)
             {
-                threshold = TOAIExporterGaugeTick.ReadThreshold(ThresholdFile, threshold);
+                threshold = TOAIExporterGaugeTick.ReadThreshold(instThresholdFile,
+                    TOAIExporterGaugeTick.ReadThreshold(ThresholdFile, threshold));
                 hasWindow = TOAIExporterGaugeTick.TryReadWindow(entryWindowFile, out winLo, out winHi);
                 try
                 {
@@ -134,6 +144,25 @@ namespace NinjaTrader.NinjaScript.Indicators
                             hist.Add(p);
                             if (hist.Count > 40) hist.RemoveAt(0);
                         }
+                    }
+                }
+            }
+            catch { }
+
+            // Threshold can change live from the dashboard ("Apply to chart").
+            // Re-read every tick (stat-checked) so the HUD syncs within ~1 tick,
+            // reading the per-instrument file first, root as the global default.
+            try
+            {
+                string tf = System.IO.File.Exists(instThresholdFile) ? instThresholdFile : ThresholdFile;
+                if (System.IO.File.Exists(tf))
+                {
+                    DateTime tst = System.IO.File.GetLastWriteTimeUtc(tf);
+                    if (tst != lastThrStamp)
+                    {
+                        lastThrStamp = tst;
+                        threshold = TOAIExporterGaugeTick.ReadThreshold(instThresholdFile,
+                            TOAIExporterGaugeTick.ReadThreshold(ThresholdFile, threshold));
                     }
                 }
             }
@@ -184,7 +213,7 @@ namespace NinjaTrader.NinjaScript.Indicators
 
             // Mode badge (top-right): which model is gating — Mean Reversion vs
             // Standard. Written by Python to <inst>\mode.txt.
-            if (!string.IsNullOrEmpty(mode))
+            if (ShowModeBadge && !string.IsNullOrEmpty(mode))
             {
                 bool mr = mode.IndexOf("rever", StringComparison.OrdinalIgnoreCase) >= 0;
                 SharpDX.Color modeCol = mr ? new SharpDX.Color(80, 200, 255, 255)
