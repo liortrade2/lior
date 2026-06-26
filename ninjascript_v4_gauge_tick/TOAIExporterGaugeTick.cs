@@ -96,6 +96,7 @@ namespace NinjaTrader.NinjaScript.Indicators
         private bool prevPassed;
         private DateTime flashUntil = DateTime.MinValue;
         private DateTime lastScoreStamp = DateTime.MinValue;
+        private DateTime lastThrStamp = DateTime.MinValue;
         private double lastScore = double.NaN;
         private string modeFile;                        // <inst>\mode.txt
         private string hudMode = "";                    // "Mean Reversion" / "Standard"
@@ -542,6 +543,26 @@ namespace NinjaTrader.NinjaScript.Indicators
                 }
                 catch (Exception ex) { ioError = ex.Message; }
             }
+
+            // Threshold can change live from the dashboard ("Apply to chart").
+            // Re-read it every tick (stat-checked, like the score) so the gate
+            // syncs within ~1 tick instead of waiting for the next bar to open.
+            try
+            {
+                string tf = System.IO.File.Exists(instThresholdFile) ? instThresholdFile : ThresholdFile;
+                if (System.IO.File.Exists(tf))
+                {
+                    DateTime tst = System.IO.File.GetLastWriteTimeUtc(tf);
+                    if (tst != lastThrStamp)
+                    {
+                        lastThrStamp = tst;
+                        MinProbabilityThreshold = ReadThreshold(instThresholdFile,
+                            ReadThreshold(ThresholdFile, MinProbabilityThreshold));
+                        Lines[0].Value = MinProbabilityThreshold;
+                    }
+                }
+            }
+            catch { }
 
             MlFilterPassed = !double.IsNaN(probOfTrue) && probOfTrue >= MinProbabilityThreshold;
             Values[1][0] = MlFilterPassed ? 1 : 0;
