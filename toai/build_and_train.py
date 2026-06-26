@@ -74,7 +74,8 @@ def find_trades_export(strategy_name: str | None = None):
     return max(candidates, key=lambda p: p.stat().st_mtime)
 
 
-def build_and_train(strategy_name: str | None = None, trades_file=None):
+def build_and_train(strategy_name: str | None = None, trades_file=None,
+                    include_live: bool = False):
     print("=" * 46)
     print("  TOAI — Build training file + train model")
     print("=" * 46)
@@ -139,6 +140,23 @@ def build_and_train(strategy_name: str | None = None, trades_file=None):
         print("history does not cover the backtest dates — reload the chart")
         print("with more days and try again.")
         return False
+
+    # Optionally fold in the realized FORWARD fills (Sim101 + funded) as extra,
+    # real-outcome training examples — the model then learns from how the
+    # strategy actually performed live, not only the backtest.
+    if include_live:
+        from .merge import live_training_rows
+        live = live_training_rows(config.DATA_DIR, bar_data_path=train_bars)
+        if len(live):
+            before = len(out)
+            out = pd.concat([out, live], ignore_index=True)
+            dedup = [c for c in ("DateTime", "PnL") if c in out.columns]
+            out = out.drop_duplicates(subset=dedup, keep="last").reset_index(drop=True)
+            out.to_csv(config.TRAINING_FILE, index=False)
+            print(f"+ folded in {len(out) - before} live fill(s) "
+                  f"({len(live)} matched) → {len(out)} total training rows")
+        else:
+            print("(no live fills matched the bar history — backtest only)")
 
     print(f"\nStep 2/2 — training on {len(out)} real trades")
     print("-" * 46)

@@ -1560,6 +1560,12 @@ def main():
 
         # ── Actions ──
         if _section("ctl_actions", "Actions", "⚡"):
+            _incl_live = st.checkbox(
+                "Also learn from live fills (Sim101 + funded)", key="ctl_train_live",
+                help="Fold your realized FORWARD trades into the training set, on "
+                     "top of the backtest — so the model also learns from how the "
+                     "strategy actually performed live. Most useful once you have a "
+                     "few hundred live fills.")
             a = st.columns(2)
             if a[0].button("⚙ Train newest export", width='stretch'):
                 from toai.build_and_train import build_and_train, find_trades_export
@@ -1569,8 +1575,10 @@ def main():
                 else:
                     with st.spinner(f"Training {p.name}…"):
                         try:
-                            build_and_train(trades_file=p)
-                            st.success(f"Trained {p.name}. Reload the chart for scores.")
+                            build_and_train(trades_file=p, include_live=_incl_live)
+                            st.success(f"Trained {p.name}"
+                                       + (" (+ live fills)" if _incl_live else "")
+                                       + ". Reload the chart for scores.")
                         except Exception as e:
                             st.error(f"Train failed: {e}")
             if a[1].button("💾 Backup models", width='stretch'):

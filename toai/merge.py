@@ -45,7 +45,10 @@ def match_trades(trades_path, bar_data_path=None, tolerance_minutes: int = 30):
     (out_df, n_trades, n_unmatched)."""
     bar_data_path = bar_data_path or config.BAR_DATA_FILE
 
-    trades = pd.read_csv(trades_path)
+    # Accept either a CSV path or an already-loaded DataFrame (live fills are
+    # spread across executions_*.csv, so the caller combines them first).
+    trades = (trades_path.copy() if isinstance(trades_path, pd.DataFrame)
+              else pd.read_csv(trades_path))
     entry_time_col = _find_col(trades.columns, "entry", "time")
     profit_col = _find_col(trades.columns, "profit", exclude=("cum",))
     direction_col = (_find_col(trades.columns, "market", "pos")
@@ -225,6 +228,43 @@ def consolidate_training_bars(inst_dir=None, verbose: bool = False,
               f"({allbars['DateTime'].min()} -> {allbars['DateTime'].max()}) "
               f"from {len(sources)} source(s)")
     return train
+
+
+def live_fills_frame(inst_dir=None):
+    """Combine every executions*.csv in the instrument folder into one trades
+    frame (entry time + profit + direction), deduped — the realized forward fills
+    (Sim101 + funded) usable as extra, real-outcome training examples."""
+    inst_dir = inst_dir or config.DATA_DIR
+    frames = []
+    for f in sorted(inst_dir.glob("executions_*.csv")) + [inst_dir / "executions.csv"]:
+        try:
+            part = pd.read_csv(f)
+        except (OSError, ValueError, pd.errors.EmptyDataError):
+            continue
+        if not part.empty and any("entry" in c.lower() and "time" in c.lower()
+                                  for c in part.columns):
+            frames.append(part)
+    if not frames:
+        return pd.DataFrame()
+    df = pd.concat(frames, ignore_index=True)
+    dedup = [c for c in ("Entry time", "Exit time", "Market pos.", "Qty", "Profit")
+             if c in df.columns]
+    if dedup:
+        df = df.drop_duplicates(subset=dedup, keep="last").reset_index(drop=True)
+    return df
+
+
+def live_training_rows(inst_dir=None, bar_data_path=None, tolerance_minutes: int = 30):
+    """Matched feature+PnL rows from the realized forward fills (same schema as
+    merge_backtest's output), or an empty frame if there are none / none match."""
+    df = live_fills_frame(inst_dir)
+    if df.empty:
+        return pd.DataFrame()
+    try:
+        out, _, _ = match_trades(df, bar_data_path, tolerance_minutes)
+        return out
+    except (ValueError, KeyError):
+        return pd.DataFrame()
 
 
 def merge_backtest(trades_path, bar_data_path=None, output_path=None,
