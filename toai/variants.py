@@ -197,6 +197,35 @@ def comparison_data(inst_dir=None):
     return rows
 
 
+def set_mode(s: str, mode: str, inst_dir=None) -> bool:
+    """Tag a variant's strategy mode ('Auto' / 'Standard' / 'Mean Reversion').
+    Stored in the registry; applied to the live HUD when the variant is the
+    active one (see sync_mode)."""
+    reg = _load_registry(inst_dir)
+    if s not in reg:
+        return False
+    reg[s]["mode"] = mode
+    _save_registry(reg, inst_dir)
+    return True
+
+
+def sync_mode(inst_dir=None):
+    """Write <inst>/mode_manual.txt from the ACTIVE variant's mode tag, so the
+    chart HUD / gate label follows the model you activated. 'Auto' (or no tag)
+    removes the manual override, letting the mode auto-derive from the model's
+    features. This is how 'tag the model, system follows the model' works."""
+    _, v = active_variant(inst_dir)
+    mmf = _dir(inst_dir) / "mode_manual.txt"
+    tag = (v or {}).get("mode")
+    try:
+        if tag and tag != "Auto":
+            mmf.write_text(tag)
+        elif mmf.exists():
+            mmf.unlink()
+    except OSError:
+        pass
+
+
 def select_variant(s: str, inst_dir=None, rescore: bool = True) -> bool:
     """Make variant <slug> the active one FOR ITS TIMEFRAME, then sync the live
     model to whatever matches the chart's current TF. Selecting a 5-min variant
@@ -210,6 +239,7 @@ def select_variant(s: str, inst_dir=None, rescore: bool = True) -> bool:
         if reg[k].get("timeframe") == tf:
             reg[k]["active"] = (k == s)
     _save_registry(reg, inst_dir)
+    sync_mode(inst_dir)              # HUD mode follows the activated model's tag
     if rescore:
         sync_live_model(inst_dir, rescore=True)
     return True

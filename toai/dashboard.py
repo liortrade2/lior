@@ -1467,9 +1467,11 @@ def main():
                     "only removes the saved snapshot — the live model.pkl is "
                     "untouched. Remaining variants then recompute from the valid "
                     "set only.")
+                _mode_opts_tbl = ["Auto", "Standard", "Mean Reversion"]
                 _vrows = [{
                     "🗑 Delete": False,
                     "⊕ PF": bool(reg[s].get("portfolio")),
+                    "Mode": reg[s].get("mode") or "Auto",
                     "Name": reg[s].get("name", s),
                     "TF": reg[s].get("timeframe"),
                     "PMV": reg[s].get("pmv"),
@@ -1484,6 +1486,10 @@ def main():
                     column_config={
                         "🗑 Delete": st.column_config.CheckboxColumn(help="Tick to delete this variant"),
                         "⊕ PF": st.column_config.CheckboxColumn(help="Include in the live portfolio"),
+                        "Mode": st.column_config.SelectboxColumn(
+                            options=_mode_opts_tbl, required=True,
+                            help="Tag the strategy. The ACTIVE model's tag drives the "
+                                 "chart-HUD mode. Auto = derive from the model's features."),
                         "PMV": st.column_config.NumberColumn(format="%.3f"),
                         "WF": st.column_config.NumberColumn(format="%.3f"),
                     },
@@ -1494,12 +1500,18 @@ def main():
                 if bc[0].button(f"Apply changes ({len(_to_del)} to delete)",
                                 type="primary", key="ctl_var_apply"):
                     changed = 0
+                    _mode_changed = False
                     for i, s in enumerate(slugs):
                         if bool(_edited.iloc[i]["🗑 Delete"]):
-                            variants.delete_variant(s, d); changed += 1
-                        elif bool(_edited.iloc[i]["⊕ PF"]) != bool(reg[s].get("portfolio")):
+                            variants.delete_variant(s, d); changed += 1; continue
+                        if bool(_edited.iloc[i]["⊕ PF"]) != bool(reg[s].get("portfolio")):
                             variants.set_portfolio(s, d, on=bool(_edited.iloc[i]["⊕ PF"]))
                             changed += 1
+                        if _edited.iloc[i]["Mode"] != (reg[s].get("mode") or "Auto"):
+                            variants.set_mode(s, _edited.iloc[i]["Mode"], d)
+                            changed += 1; _mode_changed = True
+                    if _mode_changed:
+                        variants.sync_mode(d)   # active model's tag → HUD mode
                     st.toast(f"Applied — {changed} change(s).", icon="✅")
                     st.rerun()
                 if _missing and bc[1].button(
