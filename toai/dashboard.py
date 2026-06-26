@@ -597,6 +597,8 @@ hr { margin: 0.5rem 0; border-color: #e5e7eb; }
 .ctl-livecards span { color:#6b7280; font-size:.72rem; font-weight:600; display:block; }
 .ctl-livecards b { font-size:1.5rem; font-weight:800; line-height:1.15; }
 .ctl-livecards .sub { font-size:.7rem; font-weight:700; }
+.ctl-chart-title { font-weight:800; font-size:1.02rem; color:#1f2937;
+  letter-spacing:-.2px; margin:10px 0 -6px 2px; }
 /* Collapsible section headers (Control etc.) — clickable list-row look. */
 [class*="st-key-btn_sec_"] button {
   justify-content:flex-start !important; text-align:left;
@@ -733,25 +735,33 @@ def _score_gauge_svg(score, threshold):
     s = max(0.0, min(100.0, float(score))) if has else 0.0
     t = max(0.0, min(100.0, float(threshold)))
     color = "#16a34a" if (has and s >= t) else "#ef4444"
-    W, H, x0, barY, barH = 1000, 96, 12, 40, 30
+    W, H, x0, barY, barH = 1000, 78, 14, 30, 22
     span = W - 2 * x0
     sx = x0 + span * s / 100.0
     tx = x0 + span * t / 100.0
     label = f"{s:.1f}" if has else "—"
-    lx = min(max(sx, x0 + 26), W - x0 - 26)
+    px = min(max(sx, x0 + 34), W - x0 - 34)
     return (
         f'<svg viewBox="0 0 {W} {H}" width="100%" preserveAspectRatio="xMidYMid meet" '
         f'xmlns="http://www.w3.org/2000/svg">'
-        f'<rect x="{x0}" y="{barY}" width="{span}" height="{barH}" rx="15" fill="#eef0f3"/>'
-        f'<rect x="{x0}" y="{barY}" width="{max(0.0, sx - x0):.1f}" height="{barH}" rx="15" fill="{color}"/>'
-        f'<line x1="{tx:.1f}" y1="{barY - 10}" x2="{tx:.1f}" y2="{barY + barH + 10}" '
-        f'stroke="#111827" stroke-width="3"/>'
-        f'<text x="{tx:.1f}" y="{barY - 16}" text-anchor="middle" font-size="22" '
-        f'font-weight="700" fill="#111827">threshold {t:.0f}</text>'
-        f'<text x="{lx:.1f}" y="{barY + barH + 28}" text-anchor="middle" font-size="30" '
-        f'font-weight="800" fill="{color}">{label}</text>'
-        f'<text x="{x0}" y="{H - 6}" font-size="16" fill="#9aa3ad">0</text>'
-        f'<text x="{W - x0}" y="{H - 6}" text-anchor="end" font-size="16" fill="#9aa3ad">100</text>'
+        f'<defs><filter id="sgsh" x="-2%" y="-40%" width="104%" height="200%">'
+        f'<feDropShadow dx="0" dy="1" stdDeviation="1.4" flood-color="rgba(16,24,40,.20)"/>'
+        f'</filter></defs>'
+        f'<rect x="{x0}" y="{barY}" width="{span}" height="{barH}" rx="11" fill="#e9ecf1"/>'
+        f'<rect x="{x0}" y="{barY}" width="{max(0.0, sx - x0):.1f}" height="{barH}" rx="11" '
+        f'fill="{color}" filter="url(#sgsh)"/>'
+        # threshold marker + value pill
+        f'<line x1="{tx:.1f}" y1="{barY - 7}" x2="{tx:.1f}" y2="{barY + barH + 7}" '
+        f'stroke="#0f172a" stroke-width="3"/>'
+        f'<rect x="{tx - 19:.1f}" y="{barY - 27}" width="38" height="19" rx="5" fill="#0f172a"/>'
+        f'<text x="{tx:.1f}" y="{barY - 13}" text-anchor="middle" font-size="13" '
+        f'font-weight="700" fill="#fff">{t:.0f}</text>'
+        # live-score pill
+        f'<rect x="{px - 32:.1f}" y="{barY + barH + 7}" width="64" height="25" rx="12" fill="{color}"/>'
+        f'<text x="{px:.1f}" y="{barY + barH + 24}" text-anchor="middle" font-size="16" '
+        f'font-weight="800" fill="#fff">{label}</text>'
+        f'<text x="{x0}" y="{H - 4}" font-size="13" fill="#9aa3ad">0</text>'
+        f'<text x="{W - x0}" y="{H - 4}" text-anchor="end" font-size="13" fill="#9aa3ad">100</text>'
         f'</svg>')
 
 
@@ -1352,34 +1362,52 @@ def main():
             _live_status()
 
             # Strategy vs TOAI — cumulative $ of taking EVERY strategy signal
-            # (grey) vs only the trades TOAI's gate ALLOWs (green). The gap is the
-            # money the ML filter added or saved. Uses the live (file) threshold.
+            # (grey) vs only the trades TOAI's gate ALLOWs (green). The shaded gap
+            # is the money the ML filter added (green) or cost (red).
             if scored is not None and len(scored):
+                _thr_live = config.get_threshold(d)
                 try:
-                    _all_eq, _allow_eq = scorecard.equity_curves(
-                        scored, config.get_threshold(d))
+                    _all_eq, _allow_eq = scorecard.equity_curves(scored, _thr_live)
                 except Exception:
                     _all_eq = _allow_eq = None
                 if _all_eq is not None and len(_all_eq):
-                    figc = go.Figure()
-                    figc.add_trace(go.Scatter(
-                        y=_all_eq, name="Strategy (all signals)",
-                        line=dict(color=MUTED)))
-                    figc.add_trace(go.Scatter(
-                        y=_allow_eq, name="TOAI (ALLOW only)",
-                        line=dict(color=GREEN, width=2)))
-                    figc.update_layout(
-                        title="Strategy vs TOAI — cumulative $",
-                        height=260, margin=dict(t=36), yaxis_title="cumulative $",
-                        legend=dict(orientation="h", yanchor="bottom", y=1.0))
-                    st.plotly_chart(figc, width='stretch')
+                    _n = len(_all_eq)
+                    _n_allow = int((pd.to_numeric(scored["Score"], errors="coerce")
+                                    >= _thr_live).sum())
                     _diff = float(_allow_eq[-1] - _all_eq[-1])
                     _src = "realized fills" if source == "Realized fills" else "backtest"
-                    st.caption(
-                        f"Over {len(_all_eq)} {_src} signals, TOAI's gate "
-                        f"{'added' if _diff >= 0 else 'cost'} **{_diff:+,.0f}$** vs "
-                        f"taking every signal. The wider the green-over-grey gap, "
-                        f"the more the ML filter is helping.")
+                    _fill = ("rgba(22,163,74,0.12)" if _diff >= 0
+                             else "rgba(239,68,68,0.10)")
+                    st.markdown("<div class='ctl-chart-title'>Strategy vs TOAI"
+                                " — cumulative $</div>", unsafe_allow_html=True)
+                    figc = go.Figure()
+                    figc.add_trace(go.Scatter(
+                        y=_all_eq, name="Strategy · all signals", mode="lines",
+                        line=dict(color=MUTED, width=2)))
+                    figc.add_trace(go.Scatter(
+                        y=_allow_eq, name="TOAI · ALLOW only", mode="lines",
+                        line=dict(color=GREEN, width=2.5),
+                        fill="tonexty", fillcolor=_fill))
+                    figc.add_hline(y=0, line_color="#e5e7eb")
+                    figc.update_layout(
+                        height=250, margin=dict(t=8, b=8, l=8, r=8),
+                        yaxis_title="cumulative $", xaxis_title="signal #",
+                        hovermode="x unified",
+                        legend=dict(orientation="h", yanchor="bottom", y=1.0,
+                                    x=0, bgcolor="rgba(0,0,0,0)"))
+                    st.plotly_chart(figc, width='stretch')
+                    if _n_allow == 0:
+                        st.caption(
+                            f"⚠ At threshold **{_thr_live:g}**, TOAI would **skip all "
+                            f"{_n}** past {_src} — none scored ≥ {_thr_live:g}, so the "
+                            f"green line stays flat at 0. Lower the threshold to let "
+                            f"trades through.")
+                    else:
+                        st.caption(
+                            f"TOAI allowed **{_n_allow} of {_n}** {_src} at threshold "
+                            f"**{_thr_live:g}** — the gate "
+                            f"{'added' if _diff >= 0 else 'cost'} **{_diff:+,.0f}$** "
+                            f"vs taking every signal.")
 
         # ── Training timeframe ──
         tf_opts = ["Auto", "1", "2", "3", "5", "15"]
