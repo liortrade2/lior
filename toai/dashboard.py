@@ -369,6 +369,38 @@ def _net_stats(pnl: pd.Series) -> dict:
             "pf": float(p[p > 0].sum() / gl) if gl > 0 else None, "n": int(len(p))}
 
 
+def sltp_grid(ex: pd.DataFrame, instrument, stops, targets, tie="stop"):
+    """Grid-search the stop/target what-if (same MAE/MFE logic as simulate_sltp)
+    across every (stop, target) pair. Vectorised over trades with numpy so a full
+    grid is near-instant. Returns (net[t,s], pf[t,s]) 2-D arrays in $ — rows index
+    `targets`, cols index `stops` — plus the trade count used."""
+    import numpy as np
+    mae = pd.to_numeric(ex.get("MAE"), errors="coerce").to_numpy(dtype=float)
+    mfe = pd.to_numeric(ex.get("MFE"), errors="coerce").to_numpy(dtype=float)
+    actual = pd.to_numeric(ex.get("Profit"), errors="coerce").to_numpy(dtype=float)
+    comm = (pd.to_numeric(ex.get("Commission"), errors="coerce").fillna(0).to_numpy(dtype=float)
+            if "Commission" in ex.columns else np.zeros(len(ex)))
+    ok = ~(np.isnan(mae) | np.isnan(mfe) | np.isnan(actual))
+    mae, mfe, actual, comm = mae[ok], mfe[ok], actual[ok], np.nan_to_num(comm[ok])
+    pv, _ = contract(instrument)
+    net = np.full((len(targets), len(stops)), np.nan)
+    pf = np.full((len(targets), len(stops)), np.nan)
+    for ti, t in enumerate(targets):
+        tgt_hit = (mfe >= t) if t > 0 else np.zeros(len(mfe), bool)
+        for si, s in enumerate(stops):
+            stop_hit = (mae >= s) if s > 0 else np.zeros(len(mae), bool)
+            stop_pnl = -s * pv - comm
+            tgt_pnl = t * pv - comm
+            both_pnl = stop_pnl if tie == "stop" else tgt_pnl
+            pnl = np.where(stop_hit & tgt_hit, both_pnl,
+                           np.where(stop_hit, stop_pnl,
+                                    np.where(tgt_hit, tgt_pnl, actual)))
+            net[ti, si] = pnl.sum()
+            gl = -pnl[pnl < 0].sum()
+            pf[ti, si] = (pnl[pnl > 0].sum() / gl) if gl > 0 else np.nan
+    return net, pf, int(ok.sum())
+
+
 # --------------------------------------------------------------------------- #
 #  Look & feel — a cohesive dark theme so the dashboard reads like a product,
 #  not a default Streamlit app. CSS skins the cards/tabs/typography; a Plotly
@@ -1835,15 +1867,30 @@ def main():
             pv, tick = contract(inst)
             st.caption("What-if: re-run your real trades under a different fixed "
                        "stop / target (uses each trade's MAE/MFE — no bar history).")
+            # Strategy filter — simulate one strategy at a time (the ideal
+            # stop/target differs per strategy). Uses the journal's Variant column.
+            _variants = (sorted(ex["Variant"].dropna().astype(str).unique())
+                         if "Variant" in ex.columns else [])
+            ex_sim = ex
+            if _variants:
+                sr = st.columns([2, 6])
+                _strat = sr[0].selectbox("Strategy", ["All strategies"] + _variants,
+                                         key="sim_strat")
+                if _strat != "All strategies":
+                    ex_sim = ex[ex["Variant"].astype(str) == _strat].reset_index(drop=True)
+                sr[1].caption(f"{len(ex_sim)} trade(s) in scope.")
+            ss.setdefault("sim_stop", 5.0)
+            ss.setdefault("sim_target", 10.0)
+            ss.setdefault("sim_tie", "stop")
             cc = st.columns(3)
-            stop_pts = cc[0].slider("Stop (points)", 0.0, 30.0, 5.0, 0.25)
-            target_pts = cc[1].slider("Target (points)", 0.0, 40.0, 10.0, 0.25)
+            stop_pts = cc[0].slider("Stop (points)", 0.0, 30.0, step=0.25, key="sim_stop")
+            target_pts = cc[1].slider("Target (points)", 0.0, 40.0, step=0.25, key="sim_target")
             tie = cc[2].radio("If both hit, assume", ["stop", "target"],
-                              horizontal=True,
+                              horizontal=True, key="sim_tie",
                               help="MAE/MFE don't reveal which came first.")
-            sim = simulate_sltp(ex, inst, stop_pts, target_pts, tie)
+            sim = simulate_sltp(ex_sim, inst, stop_pts, target_pts, tie)
             if sim.empty:
-                st.info("No simulatable trades.")
+                st.info("No simulatable trades for this selection.")
             else:
                 a, b = _net_stats(sim["Actual"]), _net_stats(sim["Sim"])
                 m = st.columns(4)
@@ -1856,11 +1903,11 @@ def main():
                             f"{oc.get('stop',0)} / {oc.get('target',0)} / {oc.get('actual',0)}")
 
                 if _section("sim_equity", "Equity curve", "📈"):
-                    sim = sim.sort_values("EntryTime")
+                    sim_s = sim.sort_values("EntryTime")
                     fig = go.Figure()
-                    fig.add_trace(go.Scatter(y=sim["Actual"].apply(u).cumsum(),
+                    fig.add_trace(go.Scatter(y=sim_s["Actual"].apply(u).cumsum(),
                                              name="Actual", line=dict(color=MUTED)))
-                    fig.add_trace(go.Scatter(y=sim["Sim"].apply(u).cumsum(),
+                    fig.add_trace(go.Scatter(y=sim_s["Sim"].apply(u).cumsum(),
                                              name="Simulated", line=dict(color=GREEN, width=2)))
                     fig.update_layout(title="Equity — simulated stop/target vs actual",
                                       height=300, margin=dict(t=40),
@@ -1868,6 +1915,60 @@ def main():
                     st.plotly_chart(fig, width='stretch')
                     st.caption(f"1 point = ${pv:g} · tie broken as '{tie}'. Trades that hit "
                                "neither level keep their real outcome.")
+
+                # ── Auto-optimize: grid-search every stop × target ──
+                if _section("sim_opt", "Auto-optimize stop / target", "🔍"):
+                    import numpy as np
+                    metric = st.radio("Optimize for", ["Sim net ($)", "Profit factor"],
+                                      horizontal=True, key="sim_optmetric")
+                    stops = np.arange(1, 21)        # 1..20 pts
+                    targets = np.arange(2, 31)      # 2..30 pts
+                    net_g, pf_g, n_used = sltp_grid(ex_sim, inst, stops, targets, tie)
+                    is_net = metric.startswith("Sim net")
+                    Z = net_g if is_net else pf_g
+                    if not np.isfinite(Z).any():
+                        st.info("Not enough MAE/MFE data to optimize.")
+                    else:
+                        bti, bsi = np.unravel_index(np.nanargmax(Z), Z.shape)
+                        best_s, best_t = int(stops[bsi]), int(targets[bti])
+                        best_net, best_pf = net_g[bti, bsi], pf_g[bti, bsi]
+
+                        def _apply_best(s=best_s, t=best_t):
+                            ss["sim_stop"] = float(s)
+                            ss["sim_target"] = float(t)
+                        best_txt = (f"**Best: Stop {best_s} / Target {best_t}** → "
+                                    f"Sim net **{u(best_net):,.0f}{usym}**")
+                        if np.isfinite(best_pf):
+                            best_txt += f" · PF {best_pf:.2f}"
+                        oc2 = st.columns([3, 1.4])
+                        oc2[0].markdown(best_txt)
+                        oc2[1].button("⤵ Apply to sliders", width='stretch',
+                                      on_click=_apply_best)
+
+                        Zd = (np.vectorize(lambda v: u(v) if np.isfinite(v) else np.nan)(Z)
+                              if is_net else Z)
+                        hm = go.Figure(go.Heatmap(
+                            z=Zd, x=[str(s) for s in stops], y=[str(t) for t in targets],
+                            colorscale="RdYlGn", zmid=0 if is_net else None,
+                            colorbar=dict(title=usym.strip() or "$" if is_net else "PF"),
+                            hovertemplate="Stop %{x} · Target %{y}<br>"
+                                          + ("net %{z:.0f}" if is_net else "PF %{z:.2f}")
+                                          + "<extra></extra>"))
+                        hm.add_trace(go.Scatter(
+                            x=[str(best_s)], y=[str(best_t)], mode="markers",
+                            marker=dict(symbol="star", size=16, color="#111827",
+                                        line=dict(color="#fff", width=1)),
+                            name="best", hoverinfo="skip"))
+                        hm.update_layout(
+                            title=f"{'Sim net' if is_net else 'Profit factor'} "
+                                  f"by stop × target ({n_used} trades)",
+                            xaxis_title="Stop (points)", yaxis_title="Target (points)",
+                            height=340, margin=dict(t=40), showlegend=False)
+                        st.plotly_chart(hm, width='stretch')
+                        st.caption("Greener = better. ★ = best combo. The grid uses the "
+                                   "same MAE/MFE logic — but more knobs = more curve-"
+                                   "fitting, so prefer a broad green region over a lone "
+                                   "bright cell, and keep enough trades per strategy.")
 
     # ---- TAB 6: trade explorer (per-trade candles + markers) ----
     elif view == "🕯 Trade explorer":
