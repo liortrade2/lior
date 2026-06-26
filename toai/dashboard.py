@@ -1443,57 +1443,59 @@ def main():
                     st.success(f"Activated: {reg[pick].get('name', pick)} — the live "
                                "model.pkl is now this variant.")
 
-                with st.expander("Manage variants — table: tick to delete / toggle portfolio"):
-                    _md = d / "models"
-                    _missing = [s for s in slugs if not (_md / f"{s}.pkl").exists()]
-                    st.caption(
-                        "Tick **🗑 Delete** for any stale/removed variant (e.g. ones "
-                        "whose model file is **missing**), and/or change **⊕ PF** "
-                        "(live portfolio), then click **Apply changes**. Deleting "
-                        "only removes the saved snapshot — the live model.pkl is "
-                        "untouched. Remaining variants then recompute from the valid "
-                        "set only.")
-                    _vrows = [{
-                        "🗑 Delete": False,
-                        "⊕ PF": bool(reg[s].get("portfolio")),
-                        "Name": reg[s].get("name", s),
-                        "TF": reg[s].get("timeframe"),
-                        "PMV": reg[s].get("pmv"),
-                        "WF": reg[s].get("wf_mean"),
-                        "Saved": reg[s].get("saved"),
-                        "Active": "● live" if s == active else "",
-                        "Status": "ok" if (_md / f"{s}.pkl").exists() else "⚠ missing file",
-                    } for s in slugs]
-                    _edited = st.data_editor(
-                        pd.DataFrame(_vrows), hide_index=True, width='stretch',
-                        key="ctl_var_table",
-                        column_config={
-                            "🗑 Delete": st.column_config.CheckboxColumn(help="Tick to delete this variant"),
-                            "⊕ PF": st.column_config.CheckboxColumn(help="Include in the live portfolio"),
-                            "PMV": st.column_config.NumberColumn(format="%.3f"),
-                            "WF": st.column_config.NumberColumn(format="%.3f"),
-                        },
-                        disabled=["Name", "TF", "PMV", "WF", "Saved", "Active", "Status"])
-                    _to_del = [s for i, s in enumerate(slugs)
-                               if bool(_edited.iloc[i]["🗑 Delete"])]
-                    bc = st.columns([2.4, 2.2, 3])
-                    if bc[0].button(f"Apply changes ({len(_to_del)} to delete)",
-                                    type="primary", key="ctl_var_apply"):
-                        changed = 0
-                        for i, s in enumerate(slugs):
-                            if bool(_edited.iloc[i]["🗑 Delete"]):
-                                variants.delete_variant(s, d); changed += 1
-                            elif bool(_edited.iloc[i]["⊕ PF"]) != bool(reg[s].get("portfolio")):
-                                variants.set_portfolio(s, d, on=bool(_edited.iloc[i]["⊕ PF"]))
-                                changed += 1
-                        st.toast(f"Applied — {changed} change(s).", icon="✅")
-                        st.rerun()
-                    if _missing and bc[1].button(
-                            f"🧹 Remove {len(_missing)} missing", key="ctl_var_clean"):
-                        for s in _missing:
-                            variants.delete_variant(s, d)
-                        st.toast(f"Removed {len(_missing)} stale entr(ies).", icon="🧹")
-                        st.rerun()
+                st.divider()
+                st.markdown("**🗑 Remove old / stale models** — tick **Delete** on any "
+                            "row, then **Apply changes**")
+                _md = d / "models"
+                _missing = [s for s in slugs if not (_md / f"{s}.pkl").exists()]
+                st.caption(
+                    "Tick **🗑 Delete** for any stale/removed variant (e.g. ones "
+                    "whose model file is **missing**), and/or change **⊕ PF** "
+                    "(live portfolio), then click **Apply changes**. Deleting "
+                    "only removes the saved snapshot — the live model.pkl is "
+                    "untouched. Remaining variants then recompute from the valid "
+                    "set only.")
+                _vrows = [{
+                    "🗑 Delete": False,
+                    "⊕ PF": bool(reg[s].get("portfolio")),
+                    "Name": reg[s].get("name", s),
+                    "TF": reg[s].get("timeframe"),
+                    "PMV": reg[s].get("pmv"),
+                    "WF": reg[s].get("wf_mean"),
+                    "Saved": reg[s].get("saved"),
+                    "Active": "● live" if s == active else "",
+                    "Status": "ok" if (_md / f"{s}.pkl").exists() else "⚠ missing file",
+                } for s in slugs]
+                _edited = st.data_editor(
+                    pd.DataFrame(_vrows), hide_index=True, width='stretch',
+                    key="ctl_var_table",
+                    column_config={
+                        "🗑 Delete": st.column_config.CheckboxColumn(help="Tick to delete this variant"),
+                        "⊕ PF": st.column_config.CheckboxColumn(help="Include in the live portfolio"),
+                        "PMV": st.column_config.NumberColumn(format="%.3f"),
+                        "WF": st.column_config.NumberColumn(format="%.3f"),
+                    },
+                    disabled=["Name", "TF", "PMV", "WF", "Saved", "Active", "Status"])
+                _to_del = [s for i, s in enumerate(slugs)
+                           if bool(_edited.iloc[i]["🗑 Delete"])]
+                bc = st.columns([2.4, 2.2, 3])
+                if bc[0].button(f"Apply changes ({len(_to_del)} to delete)",
+                                type="primary", key="ctl_var_apply"):
+                    changed = 0
+                    for i, s in enumerate(slugs):
+                        if bool(_edited.iloc[i]["🗑 Delete"]):
+                            variants.delete_variant(s, d); changed += 1
+                        elif bool(_edited.iloc[i]["⊕ PF"]) != bool(reg[s].get("portfolio")):
+                            variants.set_portfolio(s, d, on=bool(_edited.iloc[i]["⊕ PF"]))
+                            changed += 1
+                    st.toast(f"Applied — {changed} change(s).", icon="✅")
+                    st.rerun()
+                if _missing and bc[1].button(
+                        f"🧹 Remove {len(_missing)} missing", key="ctl_var_clean"):
+                    for s in _missing:
+                        variants.delete_variant(s, d)
+                    st.toast(f"Removed {len(_missing)} stale entr(ies).", icon="🧹")
+                    st.rerun()
             else:
                 st.info("No variants yet. Train an export below to create one.")
 
