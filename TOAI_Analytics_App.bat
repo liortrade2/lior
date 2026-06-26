@@ -36,7 +36,7 @@ rem ---- open the app window and WAIT until it is closed ----
 rem  A dedicated --user-data-dir makes Chrome run its own process, so /wait
 rem  blocks until THIS window is closed (otherwise it may attach to an existing
 rem  Chrome and return immediately).
-start "" /wait "%CHROME%" --app=http://localhost:8765 --window-size=1071,589 --disable-extensions --user-data-dir="%LocalAppData%\TOAI_Analytics_profile"
+start "" /wait "%CHROME%" --app=http://localhost:8765 --window-size=1087,625 --disable-extensions --user-data-dir="%LocalAppData%\TOAI_Analytics_profile"
 
 rem ---- app window closed: stop the server (and its children) by the port PID ----
 for /f "tokens=5" %%P in ('netstat -ano ^| findstr ":8765 " ^| findstr LISTENING') do taskkill /f /t /pid %%P >nul 2>&1

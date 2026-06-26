@@ -387,9 +387,8 @@ html, body, [class*="css"], .stMarkdown, button, input, select, textarea, .stSli
 section[data-testid="stSidebar"] { display: none; }
 /* KPI strip + bottom filters sit BELOW the nav rail, so reclaim the left
    gutter: pull them left to the window edge and keep them flush right. */
-.st-key-kpiwrap, .st-key-botbar { overflow: visible !important; }
-.st-key-kpiwrap [data-testid="stHorizontalBlock"],
-.st-key-botbar [data-testid="stExpander"] {
+.st-key-kpiwrap { overflow: visible !important; }
+.st-key-kpiwrap [data-testid="stHorizontalBlock"] {
   width: calc(100vw - 24px) !important; max-width: none !important; margin-left: -184px !important;
 }
 [data-testid="stExpander"] summary { font-weight: 700; }
@@ -534,6 +533,12 @@ hr { margin: 0.5rem 0; border-color: #e5e7eb; }
   margin-left:-120px; }  /* left edge ("Monthly goal") sits at X≈400 */
 .cal-goal-below .cal-goal { width:600px; max-width:none; }  /* span 600px → $-values right edge at X≈1000 */
 .cal-goal { width:100%; }
+/* Eval bar docked in the top account row (right of the Account selector) */
+.acct-eval { width:100%; }
+.acct-eval .cal-goal { width:100%; max-width:none; }
+/* Top account row: inset 16px each side so its left (Account) and right (eval
+   bar) edges line up with the calendar card's inner frame below it. */
+.st-key-acctrow { padding-left:16px; padding-right:16px; }
 .cal-goal-row { display:flex; justify-content:space-between; align-items:center; padding:1px 0; }
 .cal-goal-row span { color:#6b7280; font-size:.8rem; font-weight:600; }
 .cal-goal-row b { font-size:.95rem; font-weight:800; }
@@ -543,6 +548,8 @@ hr { margin: 0.5rem 0; border-color: #e5e7eb; }
 .cal-goal-bar i.loss { background:#ef4444; }
 .cal-goal-bar i.warn { background:#f59e0b; }
 .cal-goal-cap { text-align:right; font-size:.66rem; color:#9aa3ad; margin-top:3px; }
+/* Hide the eval-bar caption (Net · buffer · bal · floor) per user preference. */
+.acct-eval .cal-goal-cap { display:none; }
 .acct-lbl { text-align:right; font-size:.8rem; font-weight:600; color:#6b7280; white-space:nowrap; }
 /* evaluation range bar: Trailing DD (left) · 0 (center) · Profit target (right) */
 .eval-labels { display:flex; justify-content:space-between; align-items:center;
@@ -1006,9 +1013,45 @@ def main():
     # Scope dropdown = groups only; the individual accounts live in a second
     # dropdown that appears when "Single account…" is picked.
     acct_opts = ["All accounts"] + [f"All {t}" for t in TYPE_ORDER] + [SINGLE]
-    if ss.get("f_account") not in acct_opts:
+    # Remember the last-used account scope across sessions (persisted to
+    # ui_prefs.json) so a fresh page load doesn't snap back to "All accounts".
+    _prefs_file = config.DATA_ROOT / "ui_prefs.json"
+    _ui_prefs = {}
+    if _prefs_file.exists():
+        try:
+            _ui_prefs = json.loads(_prefs_file.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            _ui_prefs = {}
+
+    def _update_prefs(**kw):
+        # Read-modify-write so concurrent savers (account scope, stats toggle)
+        # don't clobber each other's keys.
+        cur = {}
+        if _prefs_file.exists():
+            try:
+                cur = json.loads(_prefs_file.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                cur = {}
+        cur.update(kw)
+        try:
+            _prefs_file.write_text(json.dumps(cur, indent=2), encoding="utf-8")
+        except OSError:
+            pass
+
+    def _save_account_pref():
+        _update_prefs(f_account=ss.get("f_account"),
+                      f_account_one=ss.get("f_account_one"))
+
+    if "f_account" not in ss:
+        _saved = _ui_prefs.get("f_account")
+        ss["f_account"] = _saved if _saved in acct_opts else "All accounts"
+    elif ss.get("f_account") not in acct_opts:
         ss["f_account"] = "All accounts"
-    if accounts and ss.get("f_account_one") not in accounts:
+    if "f_account_one" not in ss:
+        _saved1 = _ui_prefs.get("f_account_one")
+        if accounts:
+            ss["f_account_one"] = _saved1 if _saved1 in accounts else accounts[0]
+    elif accounts and ss.get("f_account_one") not in accounts:
         ss["f_account_one"] = accounts[0]
 
     def _scope_label(a):
@@ -1022,20 +1065,25 @@ def main():
         parts = [p for p in str(a).split("!") if p]
         return f"{parts[1]} · {parts[0]}" if len(parts) >= 2 else a
 
-    # Prominent, always-visible selector at the top (TradeZella-style).
+    # Prominent, always-visible selector at the top (TradeZella-style): Account on
+    # the left, the prop-evaluation bar continuing horizontally to its right
+    # (filled below once eval_html is computed).
     _scope = ss["f_account"]
-    if _scope == SINGLE and accounts:
-        _ac = st.columns([3.9, 0.9, 1.5, 1.7], gap="small", vertical_alignment="center")
-        _ac[1].markdown("<div class='acct-lbl'>Account</div>", unsafe_allow_html=True)
-        _ac[2].selectbox("Scope", acct_opts, key="f_account",
-                         format_func=_scope_label, label_visibility="collapsed")
-        _ac[3].selectbox("Account", accounts, key="f_account_one",
-                         format_func=_one_label, label_visibility="collapsed")
-    else:
-        _ac = st.columns([6, 0.9, 1.7], gap="small", vertical_alignment="center")
-        _ac[1].markdown("<div class='acct-lbl'>Account</div>", unsafe_allow_html=True)
-        _ac[2].selectbox("Scope", acct_opts, key="f_account",
-                         format_func=_scope_label, label_visibility="collapsed")
+    with st.container(key="acctrow"):
+        if _scope == SINGLE and accounts:
+            _ac = st.columns([1.7, 1.9, 5.5], gap="small", vertical_alignment="center")
+            _ac[0].selectbox("Scope", acct_opts, key="f_account",
+                             format_func=_scope_label, label_visibility="collapsed",
+                             on_change=_save_account_pref)
+            _ac[1].selectbox("Account", accounts, key="f_account_one",
+                             format_func=_one_label, label_visibility="collapsed",
+                             on_change=_save_account_pref)
+        else:
+            _ac = st.columns([1.9, 7.2], gap="small", vertical_alignment="center")
+            _ac[0].selectbox("Scope", acct_opts, key="f_account",
+                             format_func=_scope_label, label_visibility="collapsed",
+                             on_change=_save_account_pref)
+    _evalcol = _ac[-1]
 
     if "Account" in ex.columns and _scope != "All accounts":
         if _scope == SINGLE:
@@ -1046,12 +1094,37 @@ def main():
             _keep = [a for a in accounts if acct_type[a] == _scope[4:]]
             ex = ex[ex["Account"].astype(str).isin(_keep)].reset_index(drop=True)
 
+    # Prop-evaluation (Bulenox 25K): cumulative account P&L ($) and how far below
+    # the high-water mark. Peak = INTRADAY high-water mark (real-time, incl.
+    # unrealized) = balance-before + MFE($). Floor locks at start. min_buf =
+    # closest the real-time low (balance-before − MAE) came to the (locked) floor
+    # — ≤0 means the floor was touched intraday. Computed globally (after account
+    # filtering) so the eval bar can sit in the top row on every tab.
+    eval_net = eval_dd = eval_min_buf = 0.0
+    if "Profit" in ex.columns and len(ex):
+        _prof = pd.to_numeric(ex["Profit"], errors="coerce").fillna(0)
+        _mfe = pd.to_numeric(ex.get("MFE", 0), errors="coerce").fillna(0)
+        _mae = pd.to_numeric(ex.get("MAE", 0), errors="coerce").fillna(0)
+        _closed = _prof.cumsum()
+        _before = _closed.shift(1).fillna(0.0)
+        eval_net = float(_closed.iloc[-1])
+        _md = ss["f_max_dd"]
+        _peak_series = pd.concat([_before + _mfe, _closed], axis=1).max(axis=1).cummax()
+        _floor_series = (_peak_series - _md).clip(upper=0.0)
+        eval_dd = max(0.0, float(_peak_series.iloc[-1]) - eval_net)
+        eval_min_buf = float(((_before - _mae) - _floor_series).min())
+    eval_html = _eval_html(eval_net, eval_dd, ss["f_profit_target"],
+                           ss["f_max_dd"], ss["f_account_size"], eval_min_buf)
+    _evalcol.markdown(f"<div class='acct-eval'>{eval_html}</div>",
+                      unsafe_allow_html=True)
+
     def u(dollars):
         return to_units(dollars, inst, unit)
     usym = unit_symbol(unit)
 
     NAV = ["🏠 Home", "⚙️ Control", "🎯 ML edge", "🔬 Breakdowns", "📅 Calendar",
-           "🥅 Goals", "🧪 Simulator", "🕯 Trade explorer", "🤖 AI Coach"]
+           "🥅 Goals", "🧪 Simulator", "🕯 Trade explorer", "🤖 AI Coach",
+           "🎚 Filters"]
     # Collapse button: shrinks the rail to icon-only.
     ss.setdefault("nav_collapsed", True)  # start collapsed (icons only)
     if st.button("»" if ss["nav_collapsed"] else "«  Collapse", key="nav_toggle",
@@ -1070,8 +1143,8 @@ def main():
             " justify-content:center; }"
             ".st-key-toainav [role='radiogroup'] label p { font-size:1.2rem !important; }"
             ".block-container { padding-left:72px !important; }"
-            ".st-key-kpiwrap [data-testid='stHorizontalBlock'],"
-            ".st-key-botbar [data-testid='stExpander'] { margin-left:-60px !important; }"
+            ".st-key-kpiwrap [data-testid='stHorizontalBlock']"
+            " { margin-left:-60px !important; }"
             "</style>", unsafe_allow_html=True)
 
     # ---- CONTROL: everything the Control Panel does, in the dashboard ----
@@ -1343,24 +1416,7 @@ def main():
                else pd.DataFrame(columns=["Day", "uPnL", "count", "sum"]))
         month_dollars = float(mdf["sum"].sum()) if len(mdf) else 0.0
         mtot_disp = float(mdf["uPnL"].sum()) if len(mdf) else 0.0
-        # Prop-evaluation (Bulenox 25K): cumulative account P&L ($) and how far
-        # below the high-water mark. Peak = INTRADAY high-water mark (real-time,
-        # incl. unrealized) = balance-before + MFE($). Floor locks at start.
-        # min_buf = closest the real-time low (balance-before − MAE) ever came
-        # to the (locked) floor — ≤0 means the floor was touched intraday.
-        eval_net = eval_dd = eval_min_buf = 0.0
-        if "Profit" in ex.columns and len(ex):
-            _prof = pd.to_numeric(ex["Profit"], errors="coerce").fillna(0)
-            _mfe = pd.to_numeric(ex.get("MFE", 0), errors="coerce").fillna(0)
-            _mae = pd.to_numeric(ex.get("MAE", 0), errors="coerce").fillna(0)
-            _closed = _prof.cumsum()
-            _before = _closed.shift(1).fillna(0.0)
-            eval_net = float(_closed.iloc[-1])
-            _md = ss["f_max_dd"]
-            _peak_series = pd.concat([_before + _mfe, _closed], axis=1).max(axis=1).cummax()
-            _floor_series = (_peak_series - _md).clip(upper=0.0)
-            eval_dd = max(0.0, float(_peak_series.iloc[-1]) - eval_net)
-            eval_min_buf = float(((_before - _mae) - _floor_series).min())
+        # (Eval bar now lives in the top account row — computed globally above.)
         st.markdown(calendar_html(mdf, usym.strip() or "$", month=msel,
                                   today=pd.Timestamp.today().date(),
                                   goal_day=goal_day, goal_week=goal_week),
@@ -1424,12 +1480,23 @@ def main():
                 unsafe_allow_html=True)
             wc[1].toggle("watch", key="watch_toggle", label_visibility="collapsed",
                          on_change=_toggle_watch)
-        goalcol.markdown(
-            f"<div class='cal-goal-below'>"
-            f"{_eval_html(eval_net, eval_dd, ss['f_profit_target'], ss['f_max_dd'], ss['f_account_size'], eval_min_buf)}"
-            f"</div>", unsafe_allow_html=True)
+        # Collapsible stats: the evaluation bar + KPI cards are hidden by default
+        # so the page opens on the journal (calendar) alone. The toggle lives
+        # where the eval bar sits (right of the month nav).
+        if "home_stats_open" not in ss:
+            ss["home_stats_open"] = bool(_ui_prefs.get("home_stats_open", False))
 
-        if not k:
+        def _toggle_stats():
+            ss["home_stats_open"] = not ss["home_stats_open"]
+            _update_prefs(home_stats_open=ss["home_stats_open"])
+
+        with goalcol:
+            st.button("▾ Hide stats" if ss["home_stats_open"] else "▸ Show stats",
+                      key="home_stats_btn", on_click=_toggle_stats)
+
+        if not ss["home_stats_open"]:
+            pass
+        elif not k:
             st.info("No realized fills yet — the calendar above is empty. The ML "
                     "edge tab still works on the Walk-forward backtest.")
         else:
@@ -1471,25 +1538,6 @@ def main():
             with st.container(key="kpiwrap"):
                 for col, c in zip(st.columns(5, gap="small"), cards):
                     col.markdown(_kpi_card_one(c), unsafe_allow_html=True)
-
-            hold = f"{ev['avg_hold']:.0f}" if ev["avg_hold"] == ev["avg_hold"] else "—"
-            streak = (f"{ev['streak']} {'win' if ev['streak_win'] else 'loss'}"
-                      if ev.get("streak") else "—")
-            rows = [
-                ("Total trades", str(ev["trades"])),
-                ("Avg profit / day", f"{u(ev['avg_per_day']):,.2f}{usym}"),
-                ("Biggest winner", f"{u(ev['biggest_win']):,.2f}{usym}"),
-                ("Biggest loser", f"{u(ev['biggest_loss']):,.2f}{usym}"),
-                ("Total fees", f"${ev['total_fees']:,.2f}"),
-                ("Avg hold (min)", hold),
-                ("Win rate", f"{ev['win_rate']:.0f}%"),
-                ("Winning / losing days", f"{ev['win_days']} / {ev['loss_days']}"),
-                ("Trades / day", f"{ev['trades_per_day']:.1f}"),
-                ("Current streak", streak),
-            ]
-            html = "".join(f"<div class='evrow'><span>{a}</span><b>{b}</b></div>"
-                           for a, b in rows)
-            st.markdown(f"<div class='evpanel wide'>{html}</div>", unsafe_allow_html=True)
 
 
     # ---- TAB 1: ML edge (works for both sources via the scorecard machinery) ----
@@ -1891,10 +1939,9 @@ def main():
                 st.session_state["ai_chat"] = hist + [
                     {"role": "user", "content": q}, {"role": "assistant", "content": a}]
 
-    # ---- Filters & goals — pinned at the BOTTOM, full width below the nav ----
-    botbar = st.container(key="botbar")
-    botbar.divider()
-    with botbar.expander("⚙ Filters & goals", expanded=False):
+    # ---- TAB 9: Filters & goals (its own nav view, under AI Coach) ----
+    elif view == "🎚 Filters":
+        st.subheader("⚙ Filters & goals")
         fc = st.columns([1.2, 1.6, 2.2, 1.4])
         fc[0].selectbox("Instrument", insts, key="f_inst")
         fc[1].radio("Data source", ["Realized fills", "Walk-forward backtest"],
