@@ -251,13 +251,17 @@ def exit_efficiency(ex: pd.DataFrame, instrument) -> pd.DataFrame:
     rows = []
     for _, r in ex.iterrows():
         try:
-            realized_pts = float(r["Profit"]) / pv
-            mfe_pts = float(r["MFE"])
+            # Profit/MAE/MFE are all in $; convert to points (÷ point value × qty).
+            q = _safe_float(r.get("Qty")) or 1.0
+            denom = pv * q
+            realized_pts = float(r["Profit"]) / denom
+            mfe_pts = float(r["MFE"]) / denom
         except (TypeError, ValueError, KeyError):
             continue
         eff = (realized_pts / mfe_pts * 100) if mfe_pts > 0 else None
+        mae_d = _safe_float(r.get("MAE"))
         rows.append({"EntryTime": r["EntryTime"], "RealizedPts": realized_pts,
-                     "MFE": mfe_pts, "MAE": _safe_float(r.get("MAE")),
+                     "MFE": mfe_pts, "MAE": (mae_d / denom) if mae_d is not None else None,
                      "Efficiency": eff, "Score": r.get("Score")})
     return pd.DataFrame(rows)
 
@@ -349,12 +353,19 @@ def simulate_sltp(ex: pd.DataFrame, instrument, stop_pts: float, target_pts: flo
         except (TypeError, ValueError, KeyError):
             continue
         comm = _safe_float(r.get("Commission")) or 0.0
-        stop_hit = stop_pts > 0 and mae >= stop_pts
-        tgt_hit = target_pts > 0 and mfe >= target_pts
+        # MAE/MFE are recorded in $ (the execution logger writes MaeCurrency/
+        # MfeCurrency); convert to points to compare against the point-based
+        # stop/target. denom = point value × quantity.
+        q = _safe_float(r.get("Qty")) or 1.0
+        denom = pv * q
+        mae_pts = mae / denom if denom else mae
+        mfe_pts = mfe / denom if denom else mfe
+        stop_hit = stop_pts > 0 and mae_pts >= stop_pts
+        tgt_hit = target_pts > 0 and mfe_pts >= target_pts
         outcome = (tie if (stop_hit and tgt_hit)
                    else "stop" if stop_hit else "target" if tgt_hit else "actual")
-        pnl = (-stop_pts * pv - comm if outcome == "stop"
-               else target_pts * pv - comm if outcome == "target" else actual)
+        pnl = (-stop_pts * denom - comm if outcome == "stop"
+               else target_pts * denom - comm if outcome == "target" else actual)
         rows.append({"EntryTime": r["EntryTime"], "Sim": pnl, "Actual": actual,
                      "Outcome": outcome, "Score": r.get("Score")})
     return pd.DataFrame(rows)
@@ -380,17 +391,25 @@ def sltp_grid(ex: pd.DataFrame, instrument, stops, targets, tie="stop"):
     actual = pd.to_numeric(ex.get("Profit"), errors="coerce").to_numpy(dtype=float)
     comm = (pd.to_numeric(ex.get("Commission"), errors="coerce").fillna(0).to_numpy(dtype=float)
             if "Commission" in ex.columns else np.zeros(len(ex)))
+    qty = (pd.to_numeric(ex.get("Qty"), errors="coerce").fillna(1).to_numpy(dtype=float)
+           if "Qty" in ex.columns else np.ones(len(ex)))
     ok = ~(np.isnan(mae) | np.isnan(mfe) | np.isnan(actual))
-    mae, mfe, actual, comm = mae[ok], mfe[ok], actual[ok], np.nan_to_num(comm[ok])
+    mae, mfe, actual = mae[ok], mfe[ok], actual[ok]
+    comm, qty = np.nan_to_num(comm[ok]), qty[ok]
     pv, _ = contract(instrument)
+    # MAE/MFE are in $ — convert to points (÷ point value × qty) so they compare
+    # against the point-based stop/target grid.
+    denom = pv * np.where(qty > 0, qty, 1.0)
+    mae_pts = mae / denom
+    mfe_pts = mfe / denom
     net = np.full((len(targets), len(stops)), np.nan)
     pf = np.full((len(targets), len(stops)), np.nan)
     for ti, t in enumerate(targets):
-        tgt_hit = (mfe >= t) if t > 0 else np.zeros(len(mfe), bool)
+        tgt_hit = (mfe_pts >= t) if t > 0 else np.zeros(len(mfe), bool)
         for si, s in enumerate(stops):
-            stop_hit = (mae >= s) if s > 0 else np.zeros(len(mae), bool)
-            stop_pnl = -s * pv - comm
-            tgt_pnl = t * pv - comm
+            stop_hit = (mae_pts >= s) if s > 0 else np.zeros(len(mae), bool)
+            stop_pnl = -s * denom - comm
+            tgt_pnl = t * denom - comm
             both_pnl = stop_pnl if tie == "stop" else tgt_pnl
             pnl = np.where(stop_hit & tgt_hit, both_pnl,
                            np.where(stop_hit, stop_pnl,
@@ -1937,8 +1956,8 @@ def main():
                     import numpy as np
                     metric = st.radio("Optimize for", ["Sim net ($)", "Profit factor"],
                                       horizontal=True, key="sim_optmetric")
-                    stops = np.arange(1, 21)        # 1..20 pts
-                    targets = np.arange(2, 31)      # 2..30 pts
+                    stops = np.arange(0, 21)        # 0 = no stop … 20 pts
+                    targets = np.arange(0, 42, 2)   # 0 = no target … 40 pts
                     net_g, pf_g, n_used = sltp_grid(ex_sim, inst, stops, targets, tie)
                     is_net = metric.startswith("Sim net")
                     Z = net_g if is_net else pf_g
