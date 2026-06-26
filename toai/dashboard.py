@@ -1608,7 +1608,7 @@ def main():
             # TRUST badge — is the live score reliable? Read from the calibrated
             # model bundle. Old (pre-calibration) bundles lack these fields and
             # simply show nothing.
-            if _section("mle_summary", "Summary & trust", "📊", default_open=True):
+            if _section("mle_summary", "Summary & trust", "📊"):
                 try:
                     import joblib
                     _b = joblib.load(_inst_dir(inst) / "model.pkl")
@@ -1654,7 +1654,7 @@ def main():
 
             # Expectancy by score bucket — the core ML-separation view.
             if sc.buckets and _section("mle_buckets", "Expectancy by score bucket",
-                                       "📶", default_open=True):
+                                       "📶"):
                 b = pd.DataFrame([{
                     "Bucket": f"{x.lo:g}-{x.hi:g}", "Expectancy": x.expectancy,
                     "Win%": x.win_rate, "N": x.n} for x in sc.buckets])
@@ -1697,7 +1697,7 @@ def main():
         else:
             exn = ex.copy()
             exn["Profit"] = pd.to_numeric(exn["Profit"], errors="coerce")
-            if _section("bd_grid", "P&L breakdowns", "🔬", default_open=True):
+            if _section("bd_grid", "P&L breakdowns", "🔬"):
                 left, right = st.columns(2)
 
                 with left:
@@ -1776,7 +1776,7 @@ def main():
             dp["Day"] = pd.to_datetime(dp["Day"])
             dp["uPnL"] = dp["sum"].apply(u)
             # Month calendar heatmap (week rows × weekday cols).
-            if _section("cal_heat", "Month heatmap", "📅", default_open=True):
+            if _section("cal_heat", "Month heatmap", "📅"):
                 months = sorted(dp["Day"].dt.to_period("M").astype(str).unique())
                 msel = st.selectbox("Month", months, index=len(months) - 1)
                 mdf = dp[dp["Day"].dt.to_period("M").astype(str) == msel]
