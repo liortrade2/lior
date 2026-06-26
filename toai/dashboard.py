@@ -1322,7 +1322,9 @@ def main():
                     score = float(sc_txt)
                 except ValueError:
                     score = None
-                t = ss.get("ctl_thr", applied_thr)
+                # Show the LIVE gate the chart is actually using (the file value),
+                # not the pending slider position.
+                t = config.get_threshold(d)
                 verdict = ("ALLOW" if (score is not None and score >= t)
                            else "SKIP" if score is not None else "—")
                 vcol = ("#16a34a" if verdict == "ALLOW"
@@ -1348,6 +1350,36 @@ def main():
                 for m in h.get("messages", []):
                     st.caption("⚠ " + m)
             _live_status()
+
+            # Strategy vs TOAI — cumulative $ of taking EVERY strategy signal
+            # (grey) vs only the trades TOAI's gate ALLOWs (green). The gap is the
+            # money the ML filter added or saved. Uses the live (file) threshold.
+            if scored is not None and len(scored):
+                try:
+                    _all_eq, _allow_eq = scorecard.equity_curves(
+                        scored, config.get_threshold(d))
+                except Exception:
+                    _all_eq = _allow_eq = None
+                if _all_eq is not None and len(_all_eq):
+                    figc = go.Figure()
+                    figc.add_trace(go.Scatter(
+                        y=_all_eq, name="Strategy (all signals)",
+                        line=dict(color=MUTED)))
+                    figc.add_trace(go.Scatter(
+                        y=_allow_eq, name="TOAI (ALLOW only)",
+                        line=dict(color=GREEN, width=2)))
+                    figc.update_layout(
+                        title="Strategy vs TOAI — cumulative $",
+                        height=260, margin=dict(t=36), yaxis_title="cumulative $",
+                        legend=dict(orientation="h", yanchor="bottom", y=1.0))
+                    st.plotly_chart(figc, width='stretch')
+                    _diff = float(_allow_eq[-1] - _all_eq[-1])
+                    _src = "realized fills" if source == "Realized fills" else "backtest"
+                    st.caption(
+                        f"Over {len(_all_eq)} {_src} signals, TOAI's gate "
+                        f"{'added' if _diff >= 0 else 'cost'} **{_diff:+,.0f}$** vs "
+                        f"taking every signal. The wider the green-over-grey gap, "
+                        f"the more the ML filter is helping.")
 
         # ── Training timeframe ──
         tf_opts = ["Auto", "1", "2", "3", "5", "15"]
