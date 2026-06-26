@@ -1888,6 +1888,17 @@ def main():
             tie = cc[2].radio("If both hit, assume", ["stop", "target"],
                               horizontal=True, key="sim_tie",
                               help="MAE/MFE don't reveal which came first.")
+            # A 0 disables that exit — make it explicit (a 0 'stop' = no stop at
+            # all, which looks great on closed trades but is real risk live).
+            _off = []
+            if stop_pts == 0:
+                _off.append("**Stop = 0 → no stop loss** (losers aren't cut — "
+                            "flattering on past trades, dangerous live)")
+            if target_pts == 0:
+                _off.append("**Target = 0 → no target** (winners run to their "
+                            "actual exit)")
+            if _off:
+                st.warning(" · ".join(_off))
             sim = simulate_sltp(ex_sim, inst, stop_pts, target_pts, tie)
             if sim.empty:
                 st.info("No simulatable trades for this selection.")
@@ -1900,7 +1911,12 @@ def main():
                 m[2].metric("Sim PF", f"{b['pf']:.2f}" if b["pf"] else "—")
                 oc = sim["Outcome"].value_counts().to_dict()
                 m[3].metric("Stopped / Target / Actual",
-                            f"{oc.get('stop',0)} / {oc.get('target',0)} / {oc.get('actual',0)}")
+                            f"{oc.get('stop',0)} / {oc.get('target',0)} / {oc.get('actual',0)}",
+                            help="How many trades the hypothetical exits would have "
+                                 "changed: **Stopped** = MAE reached your stop (closed "
+                                 "at −stop); **Target** = MFE reached your target "
+                                 "(closed at +target); **Actual** = hit neither, so it "
+                                 "keeps its real P&L.")
 
                 if _section("sim_equity", "Equity curve", "📈"):
                     sim_s = sim.sort_values("EntryTime")
