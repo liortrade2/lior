@@ -23,12 +23,12 @@ import pandas as pd
 # Work both as a package module (`python -m toai.dashboard`) and as a bare script
 # (`streamlit run toai/dashboard.py`), where there is no parent package.
 try:
-    from . import ai_coach, config, journal, reset, scorecard
+    from . import ai_coach, config, journal, reset, scorecard, variants
 except ImportError:
     import pathlib
     import sys
     sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
-    from toai import ai_coach, config, journal, reset, scorecard
+    from toai import ai_coach, config, journal, reset, scorecard, variants
 
 OHLC = ["Open", "High", "Low", "Close"]
 
