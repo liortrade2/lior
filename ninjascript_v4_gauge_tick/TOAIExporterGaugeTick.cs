@@ -75,6 +75,12 @@ namespace NinjaTrader.NinjaScript.Indicators
         [NinjaScriptProperty]
         public bool PlaybackMode { get; set; } = false;
 
+        // Computed output (not a user input). It has no public setter, so the
+        // NinjaScript XML serializer (templates/workspaces) must skip it —
+        // otherwise loading a saved template throws "Cannot deserialize … has no
+        // public setter". Browsable(false) also hides it from the property grid.
+        [System.ComponentModel.Browsable(false)]
+        [System.Xml.Serialization.XmlIgnore]
         public bool MlFilterPassed { get; private set; }
 
         private System.Text.StringBuilder histBuffer;
