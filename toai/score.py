@@ -39,6 +39,39 @@ def load_model(path=None):
     return bundle
 
 
+_REVERSION_FEATURES = {"BodyDir_ATR", "ClosePos", "LowerWick_ATR",
+                       "UpperWick_ATR", "DipDepth_ATR"}
+
+
+def model_mode(bundle, inst_dir=None) -> str:
+    """The mode label for the HUD. A hand-set <inst>/mode_manual.txt wins (so you
+    can TAG a strategy when you upload it); otherwise it is auto-derived —
+    'Mean Reversion' when the model's feature set includes the candle-shape
+    reversion features, else 'Standard'."""
+    inst_dir = inst_dir if inst_dir is not None else config.MODEL_FILE.parent
+    try:
+        manual = (inst_dir / "mode_manual.txt").read_text().strip()
+        if manual:
+            return manual
+    except OSError:
+        pass
+    return ("Mean Reversion"
+            if set(bundle.get("features") or []) & _REVERSION_FEATURES
+            else "Standard")
+
+
+def write_mode(bundle, mode_file=None):
+    """Write the active model's mode to <inst>/mode.txt (atomic), for the HUD.
+    Respects a hand-set mode_manual.txt override in the same folder."""
+    mode_file = mode_file or (config.MODEL_FILE.parent / "mode.txt")
+    try:
+        tmp = mode_file.with_suffix(".tmp")
+        tmp.write_text(model_mode(bundle, mode_file.parent))
+        os.replace(str(tmp), str(mode_file))
+    except OSError:
+        pass
+
+
 def score_features(bundle, features_row: pd.DataFrame) -> float:
     """Return ProbOfTrue as a 0-100 score for a single-row DataFrame."""
     # The exporter writes raw columns; the model expects the derived,
@@ -243,6 +276,7 @@ def watch(interval_seconds: float = 2.0, stop_event=None, reload_event=None,
             if name not in bundles:
                 try:
                     bundles[name] = load_model()
+                    write_mode(bundles[name])   # refresh <inst>/mode.txt for the HUD
                 except FileNotFoundError:
                     if name not in missing_model:
                         missing_model.add(name)

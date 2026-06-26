@@ -12,6 +12,17 @@ from . import config
 from .merge import _find_col, merge_backtest
 from .train import train
 
+# Windows consoles default to cp1252, which can't encode the → / ✔ progress
+# glyphs this pipeline prints — raising UnicodeEncodeError mid-train (and, from
+# the dashboard button, surfacing as a confusing error). Make the streams
+# tolerant so a print never aborts a real training run.
+import sys as _sys
+for _stream in (_sys.stdout, _sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError, OSError):
+        pass
+
 # Files TOAI itself writes — never candidates for a trades export.
 _OWN_FILES = {config.BAR_DATA_FILE.name, config.TRAINING_FILE.name,
               config.CURRENT_FEATURES_FILE.name, config.TRADE_LOG_FILE.name}

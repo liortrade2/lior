@@ -32,6 +32,16 @@ MODEL_FEATURES = [
                         # (DST-aware). Late entries get truncated by the
                         # session-close exit and win rate falls with entry
                         # hour, so the model gets the entry time directly.
+    # ── Candle-shape features for MEAN REVERSION: a reversion entry is taken as
+    #    a falling move EXHAUSTS and the bar turns back up. These let the model
+    #    see that turn directly, instead of only the dip. Derived from the OHLC
+    #    the exporter already writes (live + bar_data), so no NinjaScript change.
+    "BodyDir_ATR",      # (Close-Open)/ATR — signed body; >0 = bar closed up (the
+                        #   reversal); the core "bar changed direction" signal.
+    "ClosePos",         # (Close-Low)/(High-Low) — 0=closed on low, 1=on high.
+    "LowerWick_ATR",    # (min(O,C)-Low)/ATR — long lower wick = lows rejected.
+    "UpperWick_ATR",    # (High-max(O,C))/ATR — long upper wick = highs rejected.
+    "DipDepth_ATR",     # (EMA20-Close)/ATR — how far below the mean (dip depth).
 ]
 
 
@@ -68,4 +78,23 @@ def derive_features(df: pd.DataFrame) -> pd.DataFrame:
     df["SwingHigh_ATR"] = df["Distance_SwingHigh"] / atr
     df["SwingLow_ATR"] = df["Distance_SwingLow"] / atr
     df["BB_Width_ATR"] = df["BBand_Width"] / atr
+
+    # Candle-shape (mean-reversion) features — computed when the OHLC columns the
+    # exporter writes are present; otherwise left NaN so old data still loads and
+    # the dropna in training simply ignores rows that lack them.
+    ohlc = ("Open", "High", "Low", "Close")
+    if all(c in df.columns for c in ohlc):
+        o, h, l, c = (df["Open"], df["High"], df["Low"], df["Close"])
+        rng = (h - l).replace(0, np.nan)
+        body_lo = pd.concat([o, c], axis=1).min(axis=1)
+        body_hi = pd.concat([o, c], axis=1).max(axis=1)
+        df["BodyDir_ATR"] = (c - o) / atr
+        df["ClosePos"] = (c - l) / rng
+        df["LowerWick_ATR"] = (body_lo - l) / atr
+        df["UpperWick_ATR"] = (h - body_hi) / atr
+        df["DipDepth_ATR"] = (df["EMA20"] - c) / atr
+    else:
+        for col in ("BodyDir_ATR", "ClosePos", "LowerWick_ATR",
+                    "UpperWick_ATR", "DipDepth_ATR"):
+            df[col] = np.nan
     return df

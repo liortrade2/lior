@@ -36,8 +36,10 @@ namespace NinjaTrader.NinjaScript.Indicators
         private const string PlaybackRoot = @"C:\LIOR_ML_PLAYBACK";
         private string RootDir = LiveRoot;
         private string ThresholdFile = LiveRoot + @"\threshold.txt";
-        private string scoreFile, barScoresFile;
+        private string scoreFile, barScoresFile, modeFile;
         private double windowLo = -1, windowHi = -1;
+        private string mode = "";                       // "Mean Reversion" / "Standard"
+        private DateTime lastModeStamp = DateTime.MinValue;
 
         private System.Collections.Generic.Dictionary<DateTime, double> scoreMap;
 
@@ -82,6 +84,7 @@ namespace NinjaTrader.NinjaScript.Indicators
                     TOAIExporterGaugeTick.SanitizeName(Bars.Instrument.MasterInstrument.Name);
                 scoreFile = dataDir + @"\score.txt";
                 barScoresFile = dataDir + @"\bar_scores.csv";
+                modeFile = dataDir + @"\mode.txt";
                 TOAIExporterGaugeTick.TryReadWindow(dataDir + @"\entry_window.txt",
                     out windowLo, out windowHi);
                 string error = null;
@@ -92,6 +95,34 @@ namespace NinjaTrader.NinjaScript.Indicators
 
         protected override void OnBarUpdate()
         {
+            // Mode badge (fixed, top-right) — which model is gating the signal:
+            // Mean Reversion (candle-shape features ON) vs Standard. Read from
+            // <inst>\mode.txt (written by Python); drawn every bar, not just on
+            // signal bars, so it's always visible. Top-RIGHT avoids the gauge HUD.
+            try
+            {
+                if (System.IO.File.Exists(modeFile))
+                {
+                    DateTime mt = System.IO.File.GetLastWriteTimeUtc(modeFile);
+                    if (mt != lastModeStamp)
+                    {
+                        lastModeStamp = mt;
+                        mode = System.IO.File.ReadAllText(modeFile).Trim();
+                    }
+                }
+            }
+            catch { }
+            if (!string.IsNullOrEmpty(mode))
+            {
+                bool mr = mode.IndexOf("rever", StringComparison.OrdinalIgnoreCase) >= 0;
+                Draw.TextFixed(this, "TOAIMode",
+                    "MODE: " + (mr ? "MEAN REVERSION" : "STANDARD"),
+                    TextPosition.TopRight,
+                    mr ? Brushes.DeepSkyBlue : Brushes.Gray,
+                    new SimpleFont("Arial", 11) { Bold = true },
+                    Brushes.Transparent, Brushes.Transparent, 0);
+            }
+
             double signal = Input[0];
             if (double.IsNaN(signal) || Math.Abs(signal) < SignalFireLevel)
                 return;
@@ -142,14 +173,16 @@ namespace NinjaTrader.NinjaScript.Indicators
                 Draw.RegionHighlightX(this, "TOAIBand" + CurrentBar, 0, 0,
                     passed ? passBand : skipBand);
 
+            // Clean number INSIDE the bar — just the number: no "%", no outline
+            // frame, no background box.
             double mid = (Bars.GetHigh(CurrentBar) + Bars.GetLow(CurrentBar)) / 2;
-            string text = string.Format("{0:F0}%", probOfTrue);
+            string text = string.Format("{0:F0}", probOfTrue);
             Draw.Text(this, "TOAISig" + CurrentBar, false, text,
                 0, mid, 0, Brushes.White,
                 new SimpleFont("Arial", 12) { Bold = true },
                 System.Windows.TextAlignment.Center,
-                Brushes.Transparent,
-                !inWindow ? Brushes.Gray : passed ? Brushes.Green : Brushes.Red, 85);
+                Brushes.Transparent,      // no outline frame
+                Brushes.Transparent, 0);  // no background box
         }
     }
 }

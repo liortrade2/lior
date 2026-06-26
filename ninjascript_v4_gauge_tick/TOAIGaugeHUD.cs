@@ -38,7 +38,7 @@ namespace NinjaTrader.NinjaScript.Indicators
         private const string PlaybackRoot = @"C:\LIOR_ML_PLAYBACK";
         private string RootDir = LiveRoot;
         private string ThresholdFile = LiveRoot + @"\threshold.txt";
-        private string scoreFile, entryWindowFile;
+        private string scoreFile, entryWindowFile, modeFile;
 
         [NinjaScriptProperty]
         public double MinProbabilityThreshold { get; set; } = 55.0;
@@ -53,6 +53,8 @@ namespace NinjaTrader.NinjaScript.Indicators
         private bool prevPassed;
         private DateTime flashUntil = DateTime.MinValue;
         private DateTime lastScoreStamp = DateTime.MinValue;
+        private string mode = "";                       // "Mean Reversion" / "Standard"
+        private DateTime lastModeStamp = DateTime.MinValue;
         private readonly System.Collections.Generic.List<double> hist =
             new System.Collections.Generic.List<double>();
 
@@ -75,6 +77,7 @@ namespace NinjaTrader.NinjaScript.Indicators
                     TOAIExporterGaugeTick.SanitizeName(Bars.Instrument.MasterInstrument.Name);
                 scoreFile = dataDir + @"\score.txt";
                 entryWindowFile = dataDir + @"\entry_window.txt";
+                modeFile = dataDir + @"\mode.txt";
                 threshold = TOAIExporterGaugeTick.ReadThreshold(ThresholdFile, MinProbabilityThreshold);
                 hasWindow = TOAIExporterGaugeTick.TryReadWindow(entryWindowFile, out winLo, out winHi);
             }
@@ -88,6 +91,19 @@ namespace NinjaTrader.NinjaScript.Indicators
             {
                 threshold = TOAIExporterGaugeTick.ReadThreshold(ThresholdFile, threshold);
                 hasWindow = TOAIExporterGaugeTick.TryReadWindow(entryWindowFile, out winLo, out winHi);
+                try
+                {
+                    if (System.IO.File.Exists(modeFile))
+                    {
+                        DateTime mt = System.IO.File.GetLastWriteTimeUtc(modeFile);
+                        if (mt != lastModeStamp)
+                        {
+                            lastModeStamp = mt;
+                            mode = System.IO.File.ReadAllText(modeFile).Trim();
+                        }
+                    }
+                }
+                catch { }
             }
 
             if (hasWindow)
@@ -165,6 +181,24 @@ namespace NinjaTrader.NinjaScript.Indicators
                 SharpDX.DirectWrite.FontWeight.Normal, SharpDX.DirectWrite.FontStyle.Normal, 11f);
             RenderTarget.DrawText("WIN PROBABILITY", fSmall,
                 new SharpDX.RectangleF(x + 18f, y + 9f, 160f, 14f), dBrush);
+
+            // Mode badge (top-right): which model is gating — Mean Reversion vs
+            // Standard. Written by Python to <inst>\mode.txt.
+            if (!string.IsNullOrEmpty(mode))
+            {
+                bool mr = mode.IndexOf("rever", StringComparison.OrdinalIgnoreCase) >= 0;
+                SharpDX.Color modeCol = mr ? new SharpDX.Color(80, 200, 255, 255)
+                                           : new SharpDX.Color(150, 156, 162, 255);
+                var mBrush = new SharpDX.Direct2D1.SolidColorBrush(RenderTarget, modeCol);
+                var fMode = new SharpDX.DirectWrite.TextFormat(dw, "Segoe UI",
+                    SharpDX.DirectWrite.FontWeight.SemiBold,
+                    SharpDX.DirectWrite.FontStyle.Normal, 11f);
+                fMode.TextAlignment = SharpDX.DirectWrite.TextAlignment.Trailing;
+                RenderTarget.DrawText(mr ? "MEAN REVERSION" : "STANDARD", fMode,
+                    new SharpDX.RectangleF(x + w - 174f, y + 9f, 160f, 14f), mBrush);
+                fMode.Dispose();
+                mBrush.Dispose();
+            }
 
             // Big score.
             string big = double.IsNaN(score) ? "--" : string.Format("{0:F0}%", score);

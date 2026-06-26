@@ -103,10 +103,13 @@ def scan_file(path):
     need = config.FEATURES + [config.TARGET_COLUMN]
     if any(c not in df.columns for c in need):
         return {"path": path, "error": "missing columns"}
-    df = derive_features(df).dropna(subset=MODEL_FEATURES + [config.TARGET_COLUMN])
+    from .train import usable_features
+    df = derive_features(df)
+    feats = usable_features(df)
+    df = df.dropna(subset=feats + [config.TARGET_COLUMN])
     if len(df) < 150:
         return {"path": path, "error": f"too few rows ({len(df)})"}
-    aucs, oof = walk_forward_oof(df, MODEL_FEATURES)
+    aucs, oof = walk_forward_oof(df, feats)
     if not aucs:
         return {"path": path, "error": "no valid folds"}
     wf_mean = float(np.mean(aucs))

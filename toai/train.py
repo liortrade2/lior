@@ -5,11 +5,44 @@ Pipeline (research doc §6):
   -> GridSearchCV over Gradient Boosting -> PMV = AUC-ROC -> save model.pkl
 """
 import joblib
+import numpy as np
 import pandas as pd
+from sklearn.calibration import CalibratedClassifierCV
 from sklearn.ensemble import GradientBoostingClassifier
-from sklearn.metrics import roc_auc_score
+from sklearn.metrics import brier_score_loss, roc_auc_score
 from sklearn.model_selection import GridSearchCV, train_test_split
 from sklearn.preprocessing import StandardScaler
+
+
+def _ece(y_true, y_prob, bins: int = 10) -> float:
+    """Expected Calibration Error: average |predicted prob − actual win rate|
+    across probability bins. 0 = perfectly calibrated; lower is better."""
+    y_true = np.asarray(y_true, dtype=float)
+    y_prob = np.asarray(y_prob, dtype=float)
+    if len(y_true) == 0:
+        return float("nan")
+    edges = np.linspace(0.0, 1.0, bins + 1)
+    idx = np.clip(np.digitize(y_prob, edges[1:-1]), 0, bins - 1)
+    err = 0.0
+    for b in range(bins):
+        m = idx == b
+        if m.any():
+            err += m.mean() * abs(y_prob[m].mean() - y_true[m].mean())
+    return float(err)
+
+
+def _trust(wf_mean: float | None, ece: float | None) -> str:
+    """One-word verdict on whether the live score can be trusted, from the
+    out-of-sample edge (walk-forward AUC) and calibration error."""
+    if wf_mean is None:
+        return "unknown"
+    if wf_mean < 0.52:
+        return "none"          # ranking ≈ random — score is noise
+    if wf_mean < 0.55:
+        return "weak"
+    if ece is not None and ece > 0.12:
+        return "uncalibrated"  # ranks ok but the % is off
+    return "good"
 
 from . import config
 from .features import MODEL_FEATURES, derive_features
@@ -19,6 +52,16 @@ PARAM_GRID = {
     "max_depth": [2, 3, 4],
     "learning_rate": [0.05, 0.1],
 }
+
+
+def usable_features(df: pd.DataFrame, features=None, min_coverage: float = 0.8):
+    """The subset of `features` the data can actually supply. The candle-shape
+    (mean-reversion) features need OHLC, which older bar-history lacks — so they
+    are dropped until enough OHLC-rich bars accumulate, then switch on by
+    themselves. Keeps the pipeline working on any data, old or new."""
+    features = features or MODEL_FEATURES
+    return [f for f in features
+            if f in df.columns and df[f].notna().mean() >= min_coverage]
 
 
 def load_training_data(path=None, features=None) -> pd.DataFrame:
@@ -31,15 +74,21 @@ def load_training_data(path=None, features=None) -> pd.DataFrame:
     if missing:
         raise ValueError(f"Training file {path} is missing columns: {missing}")
     df = derive_features(df)
-    return df.dropna(subset=features + [config.TARGET_COLUMN])
+    feats = usable_features(df, features)
+    return df.dropna(subset=feats + [config.TARGET_COLUMN])
 
 
 def train(df: pd.DataFrame | None = None, features=None, verbose: bool = True):
     features = features or MODEL_FEATURES
     if df is None:
         df = load_training_data(features=features)
-    if any(f not in df.columns for f in features):
-        df = derive_features(df).dropna(subset=features + [config.TARGET_COLUMN])
+    elif any(f not in df.columns for f in features):
+        df = derive_features(df)
+    # Adaptive feature set: train only on features the data populates (see
+    # usable_features). The candle-shape features activate automatically once
+    # OHLC-rich bar history exists; until then the model uses the base set.
+    features = usable_features(df, features)
+    df = df.dropna(subset=features + [config.TARGET_COLUMN])
 
     X = df[features]
     y = (df[config.TARGET_COLUMN] > 0).astype(int)
@@ -65,12 +114,28 @@ def train(df: pd.DataFrame | None = None, features=None, verbose: bool = True):
         n_jobs=-1,
     )
     search.fit(X_train, y_train)
-    model = search.best_estimator_
+    raw = search.best_estimator_
+    raw_prob = raw.predict_proba(X_test)[:, 1]
+
+    # Calibrate the probabilities so the live score reflects the TRUE win rate
+    # instead of the model's raw, extreme-leaning output (the "18% that won"
+    # problem). Platt/sigmoid is the robust choice on small samples; isotonic
+    # overfits. AUC is unchanged by this monotonic mapping — only the % moves.
+    model = CalibratedClassifierCV(
+        GradientBoostingClassifier(random_state=config.RANDOM_STATE,
+                                   **search.best_params_),
+        method="sigmoid", cv=3)
+    model.fit(X_train, y_train)
 
     y_prob = model.predict_proba(X_test)[:, 1]
     pmv = roc_auc_score(y_test, y_prob)
+    brier_raw = float(brier_score_loss(y_test, raw_prob))
+    brier_cal = float(brier_score_loss(y_test, y_prob))
     report = threshold_report(y_test.to_numpy(), y_prob)
     wf_aucs, wf_y, wf_prob = walk_forward(df, features=features)
+    wf_mean = (sum(wf_aucs) / len(wf_aucs)) if wf_aucs else None
+    wf_ece = _ece(wf_y, wf_prob) if len(wf_y) else None
+    trust = _trust(wf_mean, wf_ece)
     # The honest threshold table: built from walk-forward predictions only,
     # where every score was produced by a model that never saw that trade's
     # time period. The random-split table is optimistic (time leakage).
@@ -91,15 +156,31 @@ def train(df: pd.DataFrame | None = None, features=None, verbose: bool = True):
                  "walk_forward": wf_aucs,
                  "threshold_report": report,
                  "wf_threshold_report": wf_report,
-                 "entry_window": entry_window},
+                 "entry_window": entry_window,
+                 "calibrated": True, "brier_raw": brier_raw, "brier_cal": brier_cal,
+                 "wf_mean": wf_mean, "wf_ece": wf_ece, "trust": trust},
                 config.MODEL_FILE)
     # NinjaScript reads the window too (banner + gate outside it).
     # entry_window_manual.txt, when present, overrides the auto window.
     config.write_entry_window(config.resolve_entry_window(entry_window))
 
+    # On-chart HUD mode label — auto from this model's features, unless a
+    # mode_manual.txt override is set (write_mode handles both).
+    try:
+        from .score import write_mode
+        write_mode({"features": features})
+    except Exception:
+        pass
+
     if verbose:
+        _rev = [f for f in features if f in ("BodyDir_ATR", "ClosePos",
+                "LowerWick_ATR", "UpperWick_ATR", "DipDepth_ATR")]
         print(f"Trades in training set: {len(df)}")
         print(f"Win rate in data:       {y.mean() * 100:.1f}%")
+        print(f"Features used:          {len(features)}  "
+              + (f"(candle-shape/mean-reversion ON: {len(_rev)})" if _rev
+                 else "(candle-shape OFF — needs OHLC-rich bar history; "
+                      "re-export bars to enable)"))
         print(f"Best params:            {search.best_params_}")
         print(f"PMV (AUC-ROC):          {pmv:.4f}")
         if pmv > 0.5:
@@ -107,13 +188,28 @@ def train(df: pd.DataFrame | None = None, features=None, verbose: bool = True):
         else:
             print("PMV <= 0.5 — the model does NOT add value yet. Collect more trades.")
         if wf_aucs:
-            wf_mean = sum(wf_aucs) / len(wf_aucs)
             folds = "  ".join(f"{a:.3f}" for a in wf_aucs)
             print(f"Walk-forward PMV:       {wf_mean:.4f}  (folds: {folds})")
             if wf_mean > 0.5:
                 print("Walk-forward > 0.5 — the edge holds on unseen future data. ✔")
             else:
                 print("Walk-forward <= 0.5 — the edge does NOT hold forward in time.")
+        # Calibration: the score is now a Platt-calibrated probability, so e.g.
+        # "40" means ~40% of such trades won historically. Lower Brier = better.
+        print(f"Brier (raw -> calibrated): {brier_raw:.4f} -> {brier_cal:.4f}"
+              + ("  ✔ improved" if brier_cal <= brier_raw else "  (no gain)"))
+        if wf_ece is not None:
+            print(f"Calibration error (ECE):   {wf_ece:.3f}  (lower is better)")
+        verdict = {
+            "good": "TRUST: good — the score ranks AND its % is reliable. ✔",
+            "weak": "TRUST: weak — small out-of-sample edge; use a soft threshold.",
+            "uncalibrated": "TRUST: ranks ok but the % is off — needs more data.",
+            "none": "TRUST: none — out-of-sample ranking ≈ random. The % is just the "
+                    "base rate; collect more trades / add reversion features before "
+                    "trusting the gate.",
+            "unknown": "TRUST: unknown — not enough data for walk-forward.",
+        }.get(trust, trust)
+        print(verdict)
         print()
         if wf_report:
             print(format_threshold_report(

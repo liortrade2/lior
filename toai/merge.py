@@ -84,8 +84,11 @@ def match_trades(trades_path, bar_data_path=None, tolerance_minutes: int = 30):
     matched = merged.dropna(subset=config.FEATURES)
     unmatched = len(merged) - len(matched)
 
+    # Carry OHLC through so the trainer can derive candle-shape (mean-reversion)
+    # features — the live current_features.csv already exports these columns.
+    ohlc = [c for c in ("Open", "High", "Low", "Close") if c in matched.columns]
     out = matched[["EntryTime", "ExitTime", "Direction"]
-                  + config.FEATURES + ["PnL"]].copy()
+                  + config.FEATURES + ohlc + ["PnL"]].copy()
     out = out.rename(columns={"EntryTime": "DateTime"})
     return out, len(trades), unmatched
 

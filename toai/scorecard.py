@@ -275,14 +275,22 @@ def _score_trades_uncached(training_file, weight_by_pnl=False) -> ScoredTrades |
             date_from = str(dt.min().date())
             date_to = str(dt.max().date())
 
-    df = derive_features(df).dropna(subset=MODEL_FEATURES + [config.TARGET_COLUMN])
+    # Adaptive feature set — must mirror train.py: the candle-shape features
+    # need OHLC the older bar history lacks, so they're excluded until enough
+    # OHLC-rich bars exist. Without this, dropna on the full MODEL_FEATURES would
+    # wipe every historical row (reversion cols are all-NaN) and the scorecard
+    # would show nothing.
+    from .train import usable_features
+    df = derive_features(df)
+    feats = usable_features(df)
+    df = df.dropna(subset=feats + [config.TARGET_COLUMN])
     if len(df) < 30:
         return None
 
-    scored = walk_forward_scores(df, weight_by_pnl=weight_by_pnl)
+    scored = walk_forward_scores(df, features=feats, weight_by_pnl=weight_by_pnl)
     out_of_sample = scored is not None
     if scored is None:
-        scored = _in_sample_scores(df)
+        scored = _in_sample_scores(df, features=feats)
     if scored is None:
         return None
     return ScoredTrades(scored, out_of_sample, date_from, date_to)

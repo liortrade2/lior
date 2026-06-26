@@ -108,10 +108,13 @@ def train_expectancy(instrument=None, source_trades=None, base_name=None,
         source_trades = pd.read_csv(inst_dir / "training_data.csv")
     raw = source_trades.copy()
 
-    d = derive_features(raw).dropna(subset=MODEL_FEATURES + [config.TARGET_COLUMN])
+    from .train import usable_features
+    d = derive_features(raw)
+    feats = usable_features(d)
+    d = d.dropna(subset=feats + [config.TARGET_COLUMN])
     if len(d) < 150:
         raise ValueError(f"need 150+ trades to train, have {len(d)}")
-    X = d[MODEL_FEATURES].to_numpy()
+    X = d[feats].to_numpy()
     pnl = d[config.TARGET_COLUMN].to_numpy(dtype=float)
     y = (pnl > 0).astype(int)
     if len(set(y)) < 2:
@@ -127,13 +130,13 @@ def train_expectancy(instrument=None, source_trades=None, base_name=None,
 
     # Honest (out-of-fold) pooled AUC for the variant card.
     wf = None
-    oof = scorecard.walk_forward_scores(d, weight_by_pnl=True)
+    oof = scorecard.walk_forward_scores(d, features=feats, weight_by_pnl=True)
     if oof is not None:
         yy = (oof["PnL"].to_numpy() > 0).astype(int)
         if len(set(yy)) > 1:
             wf = [round(float(roc_auc_score(yy, oof["Score"].to_numpy())), 3)]
 
-    bundle = {"model": model, "scaler": scaler, "features": MODEL_FEATURES,
+    bundle = {"model": model, "scaler": scaler, "features": feats,
               "pmv": round(pmv, 4), "walk_forward": wf,
               "threshold_report": None, "wf_threshold_report": None,
               "entry_window": _entry_window(d, inst_dir), "weight_by_pnl": True}

@@ -6,7 +6,7 @@ post-trade review, a daily summary, and a chat over your real fills — each fed
 the ML score and the gate's verdict, so the advice is TOAI-aware in a way no
 generic journal coach can be.
 
-Uses the official Anthropic SDK with claude-opus-4-8 and adaptive thinking.
+Uses the official Anthropic SDK with claude-sonnet-4-6 and adaptive thinking.
 Needs ANTHROPIC_API_KEY (or ANTHROPIC_AUTH_TOKEN) in the environment. The
 `anthropic` package is imported lazily so the rest of the dashboard works
 without it installed.
@@ -25,7 +25,7 @@ except ImportError:
     sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
     from toai import config
 
-MODEL = "claude-opus-4-8"
+MODEL = "claude-sonnet-4-6"
 MAX_TOKENS = 3000
 
 SYSTEM = (

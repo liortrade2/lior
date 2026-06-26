@@ -91,6 +91,9 @@ namespace NinjaTrader.NinjaScript.Indicators
         private DateTime flashUntil = DateTime.MinValue;
         private DateTime lastScoreStamp = DateTime.MinValue;
         private double lastScore = double.NaN;
+        private string modeFile;                        // <inst>\mode.txt
+        private string hudMode = "";                    // "Mean Reversion" / "Standard"
+        private DateTime lastModeStamp = DateTime.MinValue;
         private readonly System.Collections.Generic.List<double> hudHistory =
             new System.Collections.Generic.List<double>();
 
@@ -170,6 +173,7 @@ namespace NinjaTrader.NinjaScript.Indicators
                 scoreFile = dataDir + @"\" +
                     (string.IsNullOrWhiteSpace(ScoreFileName) ? "score.txt" : ScoreFileName.Trim());
                 barScoresFile = dataDir + @"\bar_scores.csv";
+                modeFile = dataDir + @"\mode.txt";
                 entryWindowFile = dataDir + @"\entry_window.txt";
                 // Per-instrument threshold; the root file is the global default.
                 instThresholdFile = dataDir + @"\threshold.txt";
@@ -553,6 +557,22 @@ namespace NinjaTrader.NinjaScript.Indicators
             Brush textBrush = !hudInWindow ? Brushes.Silver
                 : hudPassed ? Brushes.LimeGreen : Brushes.OrangeRed;
 
+            // Mode header — which model is gating: Mean Reversion vs Standard.
+            // Read from <inst>\mode.txt (written by Python), re-parsed on change.
+            try
+            {
+                if (modeFile != null && System.IO.File.Exists(modeFile))
+                {
+                    DateTime mt = System.IO.File.GetLastWriteTimeUtc(modeFile);
+                    if (mt != lastModeStamp)
+                    {
+                        lastModeStamp = mt;
+                        hudMode = System.IO.File.ReadAllText(modeFile).Trim();
+                    }
+                }
+            }
+            catch { }
+
             string line1, line2, line3 = "";
             if (!hudInWindow)
             {
@@ -578,6 +598,11 @@ namespace NinjaTrader.NinjaScript.Indicators
             string text = line1;
             if (line2.Length > 0) text += "\n" + line2;
             if (line3.Trim().Length > 0) text += "\n" + line3;
+            if (!string.IsNullOrEmpty(hudMode))
+            {
+                bool mr = hudMode.IndexOf("rever", StringComparison.OrdinalIgnoreCase) >= 0;
+                text = "  MODE: " + (mr ? "MEAN REVERSION" : "STANDARD") + "\n" + text;
+            }
 
             Draw.TextFixed(this, "TOAIGaugeHud", text, TextPosition.TopLeft,
                 textBrush, new SimpleFont("Consolas", 16) { Bold = true },

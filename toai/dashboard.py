@@ -23,12 +23,12 @@ import pandas as pd
 # Work both as a package module (`python -m toai.dashboard`) and as a bare script
 # (`streamlit run toai/dashboard.py`), where there is no parent package.
 try:
-    from . import ai_coach, config, journal, scorecard
+    from . import ai_coach, config, journal, reset, scorecard
 except ImportError:
     import pathlib
     import sys
     sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
-    from toai import ai_coach, config, journal, scorecard
+    from toai import ai_coach, config, journal, reset, scorecard
 
 OHLC = ["Open", "High", "Low", "Close"]
 
@@ -284,6 +284,8 @@ def seasonality(ex: pd.DataFrame):
 
 def daily_pnl(ex: pd.DataFrame) -> pd.DataFrame:
     """Net P&L per calendar day (for the calendar heatmap and goals)."""
+    if ex.empty or "Profit" not in ex.columns or "Day" not in ex.columns:
+        return pd.DataFrame(columns=["Day", "sum", "count"])
     e = ex.copy()
     e["Profit"] = pd.to_numeric(e["Profit"], errors="coerce")
     g = e.dropna(subset=["Profit"]).groupby("Day")["Profit"].agg(["sum", "count"])
@@ -470,6 +472,10 @@ hr { margin: 0.5rem 0; border-color: #e5e7eb; }
 .cal { background:#fff; border:1px solid #eceef1; border-radius:14px; padding:14px 16px;
   box-shadow:0 1px 3px rgba(16,24,40,.05); }
 .cal-cardtitle { font-weight:700; font-size:1.15rem; color:#111827; }
+.day-back { display:block; text-align:center; text-decoration:none; cursor:pointer;
+  padding:8px 12px; border:1px solid #e9ebef; border-radius:8px; color:#111827;
+  font-weight:600; background:#fff; transition:background .12s, border-color .12s; }
+.day-back:hover { background:#f3f4f6; border-color:#d1d5db; }
 .cal-monthlbl { font-weight:700; font-size:1rem; color:#111827; text-align:center;
   margin-top:10px; position:relative; top:10px; }  /* June onto the Monthly-goal line */
 /* live-watch control row — status text + slide toggle on a single line */
@@ -820,9 +826,12 @@ def _day_detail(st, ex, day_str, u, usym):
     hc = st.columns([6, 2], vertical_alignment="center")
     hc[0].markdown(f"<div class='cal-cardtitle'>📋 Trades on "
                    f"{d0:%A, %B} {d0.day}, {d0.year}</div>", unsafe_allow_html=True)
-    if hc[1].button("‹ Back to month", key="day_back", width='stretch'):
-        st.query_params.clear()
-        st.rerun()
+    # "Back to month" is an anchor to ?  (no day) — the same navigation the
+    # calendar uses to OPEN a day, so it reliably clears the URL. Styled to look
+    # like a secondary button.
+    hc[1].markdown(
+        "<a href='?' target='_self' class='day-back'>‹ Back to month</a>",
+        unsafe_allow_html=True)
     if sub.empty:
         st.info("No trades on this day.")
         st.divider()
@@ -929,7 +938,22 @@ def main():
     ss = st.session_state
     if ss.get("f_inst") not in insts:
         ss["f_inst"] = insts[0]
-    ss.setdefault("f_source", "Realized fills")
+    if "f_source" not in ss:
+        # First load: default to Realized fills, but auto-fall back to the
+        # Walk-forward backtest when there are no realized fills yet (e.g. right
+        # after a reset + train) so a freshly-trained model is visible without
+        # manually flipping the Data source. A later manual choice sticks.
+        src0 = "Realized fills"
+        try:
+            _d0 = _inst_dir(ss["f_inst"])
+            _live = journal.live_scored(_d0, source="live")
+            if _live is None or len(_live) == 0:
+                _bt = scored_for(ss["f_inst"], "Walk-forward backtest")[0]
+                if _bt is not None and len(_bt):
+                    src0 = "Walk-forward backtest"
+        except Exception:
+            pass
+        ss["f_source"] = src0
     ss.setdefault("f_unit", "$")
     ss.setdefault("f_gday", 200)
     ss.setdefault("f_profit_target", 1500)
@@ -1076,7 +1100,7 @@ def main():
             cc[1].metric("Threshold", f"{t:g}")
             cc[2].metric("Gate", verdict)
             try:
-                from . import health
+                from toai import health
                 h = health.check(inst)
                 cc[3].metric("Model age",
                              f"{h['age_days']}d" if h.get("age_days") is not None else "—",
@@ -1151,10 +1175,46 @@ def main():
             st.info("No variants yet. Train an export below to create one.")
 
         st.divider()
+        st.divider()
+        st.subheader("Strategy mode")
+        from toai import score as _score
+        _mmf = d / "mode_manual.txt"
+        try:
+            _cur_manual = _mmf.read_text().strip()
+        except OSError:
+            _cur_manual = ""
+        _mode_opts = ["Auto (from model)", "Standard", "Mean Reversion"]
+        _mi = _mode_opts.index(_cur_manual) if _cur_manual in _mode_opts else 0
+        mc = st.columns([3, 1], vertical_alignment="bottom")
+        mode_pick = mc[0].selectbox(
+            "Chart-HUD mode — tag the strategy when you upload it",
+            _mode_opts, index=_mi, key="ctl_mode")
+        if mc[1].button("Apply", width='stretch', key="ctl_mode_apply"):
+            try:
+                if mode_pick.startswith("Auto"):
+                    if _mmf.exists():
+                        _mmf.unlink()
+                else:
+                    _mmf.write_text(mode_pick)
+                import joblib
+                try:
+                    _bm = joblib.load(d / "model.pkl")
+                except Exception:
+                    _bm = {"features": []}
+                _score.write_mode(_bm, d / "mode.txt")
+                st.success(f"HUD mode → {_score.model_mode(_bm, d)}")
+            except Exception as e:
+                st.error(f"Failed: {e}")
+        st.caption("Auto = derived from the model (Mean Reversion when the "
+                   "candle-shape features are on). Pin it manually to tag the "
+                   "strategy — the choice persists across retrains and shows on "
+                   "the chart HUD.")
+
+        st.divider()
         st.subheader("Actions")
         a = st.columns(2)
         if a[0].button("⚙ Train newest export", width='stretch'):
-            from .build_and_train import build_and_train, find_trades_export
+            from toai.build_and_train import build_and_train, find_trades_export
             p = find_trades_export()
             if p is None:
                 st.warning(f"No trades export found in {config.DATA_ROOT}.")
@@ -1166,7 +1226,7 @@ def main():
                     except Exception as e:
                         st.error(f"Train failed: {e}")
         if a[1].button("💾 Backup models", width='stretch'):
-            from . import backup
+            from toai import backup
             try:
                 p = backup.backup_instrument(d)
                 st.success(f"Backed up → {p}" if p else "Nothing to back up yet.")
@@ -1175,7 +1235,7 @@ def main():
 
         b = st.columns(3)
         if b[0].button("🧹 Clear NT cache", width='stretch'):
-            from . import ninja_cache
+            from toai import ninja_cache
             try:
                 st.success(f"Cleared NinjaTrader cache: {ninja_cache.clear_cache()}")
             except Exception as e:
@@ -1183,11 +1243,11 @@ def main():
         arm = b[1].checkbox("Arm day routines", help="Start/End-day launch or "
                             "close NinjaTrader. Tick to enable the buttons.")
         if b[2].button("🌅 Start day", width='stretch', disabled=not arm):
-            from . import routines
+            from toai import routines
             with st.spinner("Start-of-day…"):
                 st.success(str(routines.start_of_day()))
         if arm and st.button("🌙 End day"):
-            from . import routines
+            from toai import routines
             with st.spinner("End-of-day…"):
                 st.success(str(routines.end_of_day()))
 
@@ -1210,6 +1270,41 @@ def main():
                    "and auto-trains new exports. ⚠️ Run only ONE watcher — if "
                    "TOAI_Control.bat is already running its watch, don't start a second.")
 
+        st.divider()
+        st.subheader("Reset a simulation account")
+        _sims = reset.sim_accounts(accounts)
+        if not _sims:
+            st.caption("No simulation accounts found yet (e.g. NinjaTrader "
+                       "Sim101). They appear here once they've traded or are "
+                       "listed in accounts.txt.")
+        else:
+            rc = st.columns([3, 1], vertical_alignment="bottom")
+            sim_pick = rc[0].selectbox("Account to reset", _sims,
+                                       key="ctl_reset_acct")
+            n_rows = reset.count_rows(sim_pick)
+            rc[1].metric("Fills", n_rows)
+            confirm = st.checkbox(
+                f"Yes, delete all {n_rows} fill(s) for {sim_pick} across every "
+                f"instrument", key="ctl_reset_confirm")
+            if st.button("🗑 Reset account", type="primary", width='stretch',
+                         disabled=not confirm or n_rows == 0):
+                try:
+                    res = reset.reset_account(sim_pick)
+                    st.toast(f"Reset {res['account']}: removed "
+                             f"{res['removed']} fill(s) + "
+                             f"{res['journal_removed']} journal row(s).",
+                             icon="✅")
+                    if res["backup"]:
+                        st.toast(f"Backup → {res['backup']}", icon="💾")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Reset failed: {e}")
+            st.caption("Clears this account's calendar / KPIs / evaluation AND "
+                       "its 'Realized fills' trades — removing both the fills "
+                       "(executions) and the matching scored journal rows from "
+                       "every instrument. Originals are copied to _reset_backups "
+                       "first, so it's reversible.")
+
     # ---- HOME: one-glance overview (Edgewonk-style) — fits a screen, no scroll ----
     elif view == "🏠 Home":
         # Live auto-refresh while the watch is ON — reloads executions/journal so
@@ -1220,14 +1315,125 @@ def main():
                 st.rerun()
             _live_refresh()
         k = kpis(ex)
+        # Clicking a calendar day sets ?day=… → show that day's journal first.
+        # The panel is driven purely by the URL: a day link opens it, and the
+        # "Back to month" link inside it navigates back to ?  (clears day) —
+        # the SAME anchor mechanism in both directions, so closing is as
+        # reliable as opening. (Older code closed via st.query_params.clear(),
+        # which newer Streamlit doesn't reliably push to the browser URL.)
+        qp_day = st.query_params.get("day")
+        if qp_day:
+            _day_detail(st, ex, qp_day, u, usym)
+
+        # ── Calendar FIRST: full width, at the very top — drawn even with ZERO
+        #    realized fills so the month grid is always visible. Nav + goal +
+        #    watch toggle sit on one row below; KPI cards + the evaluation panel
+        #    only appear once there are trades to summarise. ──
+        dp = daily_pnl(ex)
+        if len(dp):
+            dp["Day"] = pd.to_datetime(dp["Day"])
+            dp["uPnL"] = dp["sum"].apply(u)
+        latest = (dp["Day"].dt.to_period("M").max() if len(dp)
+                  else pd.Timestamp.today().to_period("M"))
+        if not ss.get("f_calmonth"):
+            ss["f_calmonth"] = str(latest)
+        cur = pd.Period(ss["f_calmonth"], freq="M")
+        msel = str(cur)
+        mdf = (dp[dp["Day"].dt.to_period("M").astype(str) == msel] if len(dp)
+               else pd.DataFrame(columns=["Day", "uPnL", "count", "sum"]))
+        month_dollars = float(mdf["sum"].sum()) if len(mdf) else 0.0
+        mtot_disp = float(mdf["uPnL"].sum()) if len(mdf) else 0.0
+        # Prop-evaluation (Bulenox 25K): cumulative account P&L ($) and how far
+        # below the high-water mark. Peak = INTRADAY high-water mark (real-time,
+        # incl. unrealized) = balance-before + MFE($). Floor locks at start.
+        # min_buf = closest the real-time low (balance-before − MAE) ever came
+        # to the (locked) floor — ≤0 means the floor was touched intraday.
+        eval_net = eval_dd = eval_min_buf = 0.0
+        if "Profit" in ex.columns and len(ex):
+            _prof = pd.to_numeric(ex["Profit"], errors="coerce").fillna(0)
+            _mfe = pd.to_numeric(ex.get("MFE", 0), errors="coerce").fillna(0)
+            _mae = pd.to_numeric(ex.get("MAE", 0), errors="coerce").fillna(0)
+            _closed = _prof.cumsum()
+            _before = _closed.shift(1).fillna(0.0)
+            eval_net = float(_closed.iloc[-1])
+            _md = ss["f_max_dd"]
+            _peak_series = pd.concat([_before + _mfe, _closed], axis=1).max(axis=1).cummax()
+            _floor_series = (_peak_series - _md).clip(upper=0.0)
+            eval_dd = max(0.0, float(_peak_series.iloc[-1]) - eval_net)
+            eval_min_buf = float(((_before - _mae) - _floor_series).min())
+        st.markdown(calendar_html(mdf, usym.strip() or "$", month=msel,
+                                  today=pd.Timestamp.today().date(),
+                                  goal_day=goal_day, goal_week=goal_week),
+                    unsafe_allow_html=True)
+
+        # Below the calendar: ‹ Month › nav on the left, monthly-goal block on
+        # the right — aligned on the same (Monthly goal $…) row. on_click
+        # callbacks fire before the rerun body, so the calendar above stays
+        # in sync even though the buttons render after it.
+        def _shift_month(delta):
+            cm = ss.get("f_calmonth")
+            if cm:
+                ss["f_calmonth"] = str(pd.Period(cm, "M") + delta)
+
+        # Live-watch toggle — does the Control tab's Start/Stop watch without
+        # opening ⚙️ Control. Default ON: opening the dashboard auto-starts the
+        # watcher so live fills are journaled (and NinjaTrader is gated) without
+        # having to remember to flip it. on_change handles later toggles.
+        def _start_watch():
+            import subprocess
+            import sys
+            return subprocess.Popen(
+                [sys.executable, "-c", "from toai.score import watch; watch()"],
+                cwd=str(PROJECT_ROOT))
+
+        def _toggle_watch():
+            wp = ss.get("watch_proc")
+            alive = wp is not None and wp.poll() is None
+            if ss.get("watch_toggle") and not alive:
+                ss["watch_proc"] = _start_watch()
+            elif not ss.get("watch_toggle") and alive:
+                wp.terminate()
+                ss["watch_proc"] = None
+        ss.setdefault("watch_toggle", True)
+        _wp = ss.get("watch_proc")
+        _alive = _wp is not None and _wp.poll() is None
+        # Auto-start once when the default-ON toggle has no live watcher yet
+        # (guarded so it doesn't respawn on every rerun).
+        if ss["watch_toggle"] and not _alive and not ss.get("_watch_autostarted"):
+            ss["_watch_autostarted"] = True
+            ss["watch_proc"] = _start_watch()
+            _wp = ss["watch_proc"]
+            _alive = True
+
+        # Left column: ‹ Month › nav on top (aligned with Monthly goal), and the
+        # live-watch control on ONE line below (aligned with Month total).
+        # Right column: the monthly-goal block.
+        _sp, navcol, goalcol = st.columns([0.66, 3.4, 5], gap="small",
+                                          vertical_alignment="bottom")
+        with navcol:
+            nc = st.columns([0.55, 1.5, 0.55, 2.4], gap="small", vertical_alignment="center")
+            nc[0].button("‹", key="cal_prev", on_click=_shift_month, args=(-1,))
+            nc[1].markdown(f"<div class='cal-monthlbl'>{cur.strftime('%B %Y')}</div>",
+                           unsafe_allow_html=True)
+            nc[2].button("›", key="cal_next", on_click=_shift_month, args=(1,))
+            # wc mirrors nc's cumulative widths so the toggle lands under the › arrow.
+            wc = st.columns([2.05, 0.55, 2.4], gap="small", vertical_alignment="center")
+            wc[0].markdown(
+                f"<div class='watch-status'>"
+                f"{'🟢 watch running' if _alive else '⚪ watch stopped'}</div>",
+                unsafe_allow_html=True)
+            wc[1].toggle("watch", key="watch_toggle", label_visibility="collapsed",
+                         on_change=_toggle_watch)
+        goalcol.markdown(
+            f"<div class='cal-goal-below'>"
+            f"{_eval_html(eval_net, eval_dd, ss['f_profit_target'], ss['f_max_dd'], ss['f_account_size'], eval_min_buf)}"
+            f"</div>", unsafe_allow_html=True)
+
         if not k:
-            st.info("No realized fills yet — the ML edge tab still works on the "
-                    "Walk-forward backtest.")
+            st.info("No realized fills yet — the calendar above is empty. The ML "
+                    "edge tab still works on the Walk-forward backtest.")
         else:
-            # Clicking a calendar day sets ?day=… → show that day's journal first.
-            qp_day = st.query_params.get("day")
-            if qp_day:
-                _day_detail(st, ex, qp_day, u, usym)
+            # ── KPI cards + Evaluation panel — only once there are realized trades ──
             ev = evaluation(ex)
             ml_edge = sel = None
             if scored is not None and len(scored):
@@ -1262,107 +1468,6 @@ def main():
                  if sel is not None else "",
                  "sub": "ALLOW vs all", "sub_color": GREEN},
             ]
-            # ── Calendar FIRST: full width, at the very top — so shrinking the
-            #    window leaves just the calendar. Nav + goal sit on one row below. ──
-            dp = daily_pnl(ex)
-            dp["Day"] = pd.to_datetime(dp["Day"])
-            dp["uPnL"] = dp["sum"].apply(u)
-            latest = (dp["Day"].dt.to_period("M").max() if len(dp)
-                      else pd.Timestamp.today().to_period("M"))
-            if not ss.get("f_calmonth"):
-                ss["f_calmonth"] = str(latest)
-            cur = pd.Period(ss["f_calmonth"], freq="M")
-            msel = str(cur)
-            mdf = dp[dp["Day"].dt.to_period("M").astype(str) == msel]
-            month_dollars = float(mdf["sum"].sum()) if len(mdf) else 0.0
-            mtot_disp = float(mdf["uPnL"].sum()) if len(mdf) else 0.0
-            # Prop-evaluation (Bulenox 25K): cumulative account P&L ($) and how far
-            # below the high-water mark. Peak = INTRADAY high-water mark (real-time,
-            # incl. unrealized) = balance-before + MFE($). Floor locks at start.
-            # min_buf = closest the real-time low (balance-before − MAE) ever came
-            # to the (locked) floor — ≤0 means the floor was touched intraday.
-            _prof = pd.to_numeric(ex["Profit"], errors="coerce").fillna(0)
-            _mfe = pd.to_numeric(ex.get("MFE", 0), errors="coerce").fillna(0)
-            _mae = pd.to_numeric(ex.get("MAE", 0), errors="coerce").fillna(0)
-            _closed = _prof.cumsum()
-            _before = _closed.shift(1).fillna(0.0)
-            eval_net = float(_closed.iloc[-1]) if len(_prof) else 0.0
-            eval_dd = eval_min_buf = 0.0
-            if len(_prof):
-                _md = ss["f_max_dd"]
-                _peak_series = pd.concat([_before + _mfe, _closed], axis=1).max(axis=1).cummax()
-                _floor_series = (_peak_series - _md).clip(upper=0.0)
-                eval_dd = max(0.0, float(_peak_series.iloc[-1]) - eval_net)
-                eval_min_buf = float(((_before - _mae) - _floor_series).min())
-            st.markdown(calendar_html(mdf, usym.strip() or "$", month=msel,
-                                      today=pd.Timestamp.today().date(),
-                                      goal_day=goal_day, goal_week=goal_week),
-                        unsafe_allow_html=True)
-
-            # Below the calendar: ‹ Month › nav on the left, monthly-goal block on
-            # the right — aligned on the same (Monthly goal $…) row. on_click
-            # callbacks fire before the rerun body, so the calendar above stays
-            # in sync even though the buttons render after it.
-            def _shift_month(delta):
-                cm = ss.get("f_calmonth")
-                if cm:
-                    ss["f_calmonth"] = str(pd.Period(cm, "M") + delta)
-
-            # Live-watch toggle — does the Control tab's Start/Stop watch without
-            # opening ⚙️ Control. Default ON: opening the dashboard auto-starts the
-            # watcher so live fills are journaled (and NinjaTrader is gated) without
-            # having to remember to flip it. on_change handles later toggles.
-            def _start_watch():
-                import subprocess
-                import sys
-                return subprocess.Popen(
-                    [sys.executable, "-c", "from toai.score import watch; watch()"],
-                    cwd=str(PROJECT_ROOT))
-
-            def _toggle_watch():
-                wp = ss.get("watch_proc")
-                alive = wp is not None and wp.poll() is None
-                if ss.get("watch_toggle") and not alive:
-                    ss["watch_proc"] = _start_watch()
-                elif not ss.get("watch_toggle") and alive:
-                    wp.terminate()
-                    ss["watch_proc"] = None
-            ss.setdefault("watch_toggle", True)
-            _wp = ss.get("watch_proc")
-            _alive = _wp is not None and _wp.poll() is None
-            # Auto-start once when the default-ON toggle has no live watcher yet
-            # (guarded so it doesn't respawn on every rerun).
-            if ss["watch_toggle"] and not _alive and not ss.get("_watch_autostarted"):
-                ss["_watch_autostarted"] = True
-                ss["watch_proc"] = _start_watch()
-                _wp = ss["watch_proc"]
-                _alive = True
-
-            # Left column: ‹ Month › nav on top (aligned with Monthly goal), and the
-            # live-watch control on ONE line below (aligned with Month total).
-            # Right column: the monthly-goal block.
-            _sp, navcol, goalcol = st.columns([0.66, 3.4, 5], gap="small",
-                                              vertical_alignment="bottom")
-            with navcol:
-                nc = st.columns([0.55, 1.5, 0.55, 2.4], gap="small", vertical_alignment="center")
-                nc[0].button("‹", key="cal_prev", on_click=_shift_month, args=(-1,))
-                nc[1].markdown(f"<div class='cal-monthlbl'>{cur.strftime('%B %Y')}</div>",
-                               unsafe_allow_html=True)
-                nc[2].button("›", key="cal_next", on_click=_shift_month, args=(1,))
-                # wc mirrors nc's cumulative widths so the toggle lands under the › arrow.
-                wc = st.columns([2.05, 0.55, 2.4], gap="small", vertical_alignment="center")
-                wc[0].markdown(
-                    f"<div class='watch-status'>"
-                    f"{'🟢 watch running' if _alive else '⚪ watch stopped'}</div>",
-                    unsafe_allow_html=True)
-                wc[1].toggle("watch", key="watch_toggle", label_visibility="collapsed",
-                             on_change=_toggle_watch)
-            goalcol.markdown(
-                f"<div class='cal-goal-below'>"
-                f"{_eval_html(eval_net, eval_dd, ss['f_profit_target'], ss['f_max_dd'], ss['f_account_size'], eval_min_buf)}"
-                f"</div>", unsafe_allow_html=True)
-
-            # ── Below the calendar: KPI cards, then the Evaluation panel ──
             with st.container(key="kpiwrap"):
                 for col, c in zip(st.columns(5, gap="small"), cards):
                     col.markdown(_kpi_card_one(c), unsafe_allow_html=True)
@@ -1399,6 +1504,44 @@ def main():
                      else "walk-forward, out-of-sample" if oos else "in-sample (few trades)")
             st.caption(f"{sc.n_trades} trades · {basis}"
                        + (f" · {dfrom} → {dto}" if dfrom else ""))
+
+            # TRUST badge — is the live score reliable? Read from the calibrated
+            # model bundle. Old (pre-calibration) bundles lack these fields and
+            # simply show nothing.
+            try:
+                import joblib
+                _b = joblib.load(_inst_dir(inst) / "model.pkl")
+            except Exception:
+                _b = {}
+            _trust = _b.get("trust")
+            if _trust:
+                _color = {"good": GREEN, "weak": "#d97706", "uncalibrated": "#d97706",
+                          "none": RED, "unknown": "#6b7280"}.get(_trust, "#6b7280")
+                _msg = {"good": "score is reliable",
+                        "weak": "small edge — use a soft threshold",
+                        "uncalibrated": "ranks ok but the % is off",
+                        "none": "out-of-sample ≈ random — the % ≈ base rate",
+                        "unknown": "not enough data for walk-forward"}.get(_trust, "")
+                _p = [f"<b style='color:{_color}'>TRUST: {_trust}</b> — {_msg}"]
+                if _b.get("wf_mean") is not None:
+                    _p.append(f"WF&nbsp;AUC&nbsp;{_b['wf_mean']:.2f}")
+                if _b.get("calibrated"):
+                    _p.append("calibrated&nbsp;✓")
+                if _b.get("wf_ece") is not None:
+                    _p.append(f"ECE&nbsp;{_b['wf_ece']:.2f}")
+                _rev = [f for f in (_b.get("features") or [])
+                        if f in ("BodyDir_ATR", "ClosePos", "LowerWick_ATR",
+                                 "UpperWick_ATR", "DipDepth_ATR")]
+                _p.append("reversion&nbsp;features&nbsp;"
+                          + ("ON" if _rev else "OFF"))
+                st.markdown("<div style='font-size:0.85rem;color:#6b7280;"
+                            "margin:-4px 0 6px'>" + "&nbsp;·&nbsp;".join(_p)
+                            + "</div>", unsafe_allow_html=True)
+                if _trust in ("none", "weak"):
+                    st.caption("⚠ The gate adds little or no edge on current data — "
+                               "collect more trades, and re-export bars (OHLC) to "
+                               "enable the candle-shape mean-reversion features, "
+                               "before trusting the score.")
 
             c1, c2, c3 = st.columns(3)
             c1.metric("ALLOW expectancy", f"${sc.allow.expectancy:+,.2f}",
