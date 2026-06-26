@@ -49,6 +49,12 @@ namespace NinjaTrader.NinjaScript.Indicators
         [NinjaScriptProperty]
         public bool ShowSignalBand { get; set; } = true;
 
+        // Top-right "MODE: …" badge. Off by default — the strategy mode is now
+        // shown in the dashboard panel, so the chart badge is redundant. Tick to
+        // bring it back.
+        [NinjaScriptProperty]
+        public bool ShowModeBadge { get; set; } = false;
+
         [NinjaScriptProperty]
         public double SignalFireLevel { get; set; } = 0.8;
 
@@ -112,7 +118,7 @@ namespace NinjaTrader.NinjaScript.Indicators
                 }
             }
             catch { }
-            if (!string.IsNullOrEmpty(mode))
+            if (ShowModeBadge && !string.IsNullOrEmpty(mode))
             {
                 bool mr = mode.IndexOf("rever", StringComparison.OrdinalIgnoreCase) >= 0;
                 Draw.TextFixed(this, "TOAIMode",
@@ -121,6 +127,10 @@ namespace NinjaTrader.NinjaScript.Indicators
                     mr ? Brushes.DeepSkyBlue : Brushes.Gray,
                     new SimpleFont("Arial", 11) { Bold = true },
                     Brushes.Transparent, Brushes.Transparent, 0);
+            }
+            else
+            {
+                RemoveDrawObject("TOAIMode");   // clear if it was shown before
             }
 
             double signal = Input[0];
