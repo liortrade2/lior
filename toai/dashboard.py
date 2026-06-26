@@ -1205,7 +1205,7 @@ def main():
         except ValueError:
             _verdict = "—"
         if _section("ctl_live", "Live status", "🟢",
-                    f"score {_sc_txt} · {_verdict}", default_open=True):
+                    f"score {_sc_txt} · {_verdict}"):
             auto = st.checkbox("🔄 Auto-refresh every 2s", value=False, key="ctl_auto")
 
             @st.fragment(run_every=2 if auto else None)
