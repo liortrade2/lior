@@ -539,6 +539,15 @@ hr { margin: 0.5rem 0; border-color: #e5e7eb; }
 /* Top account row: inset 16px each side so its left (Account) and right (eval
    bar) edges line up with the calendar card's inner frame below it. */
 .st-key-acctrow { padding-left:16px; padding-right:16px; }
+/* Collapsible section headers (Control etc.) — clickable list-row look. */
+[class*="st-key-btn_sec_"] button {
+  justify-content:flex-start !important; text-align:left;
+  background:#f6f8fa; border:1px solid #e7eaee; border-radius:10px;
+  padding:8px 14px; color:#1f2937; box-shadow:none; }
+[class*="st-key-btn_sec_"] button:hover { background:#eef1f5; border-color:#d7dbe0; }
+[class*="st-key-btn_sec_"] button p { font-weight:700 !important; font-size:1rem !important; }
+[class*="st-key-ctl_openall"] button, [class*="st-key-ctl_collapseall"] button {
+  padding:3px 10px; font-size:.8rem; }
 .cal-goal-row { display:flex; justify-content:space-between; align-items:center; padding:1px 0; }
 .cal-goal-row span { color:#6b7280; font-size:.8rem; font-weight:600; }
 .cal-goal-row b { font-size:.95rem; font-weight:800; }
@@ -1042,6 +1051,29 @@ def main():
         _update_prefs(f_account=ss.get("f_account"),
                       f_account_one=ss.get("f_account_one"))
 
+    def _section(key, title, icon="", summary="", default_open=False):
+        """Collapsible section header (clickable). Open/closed state persists in
+        ui_prefs.json so the user's chosen layout sticks across sessions. When
+        collapsed, the one-line `summary` shows the key value without opening.
+        Returns True when the section is open (caller renders its body)."""
+        sk = f"sec_{key}"
+        if sk not in ss:
+            ss[sk] = bool(_ui_prefs.get(sk, default_open))
+        chev = "▾" if ss[sk] else "▸"
+        sm = f"   —   {summary}" if (summary and not ss[sk]) else ""
+
+        def _toggle():
+            ss[sk] = not ss[sk]
+            _update_prefs(**{sk: ss[sk]})
+        st.button(f"{chev}  {icon} {title}{sm}", key=f"btn_{sk}",
+                  on_click=_toggle, width='stretch')
+        return ss[sk]
+
+    def _set_sections(keys, open_):
+        for k in keys:
+            ss[f"sec_{k}"] = open_
+        _update_prefs(**{f"sec_{k}": open_ for k in keys})
+
     if "f_account" not in ss:
         _saved = _ui_prefs.get("f_account")
         ss["f_account"] = _saved if _saved in acct_opts else "All accounts"
@@ -1152,104 +1184,122 @@ def main():
         import subprocess
         import sys
         d = _inst_dir(inst)
-
-        # Live status — optionally auto-refreshing every 2s, like the panel badge.
-        st.subheader("Live status")
-        auto = st.checkbox("🔄 Auto-refresh every 2s", value=False, key="ctl_auto")
-
-        @st.fragment(run_every=2 if auto else None)
-        def _live_status():
-            try:
-                sc_txt = (d / "score.txt").read_text(encoding="utf-8", errors="ignore").strip()
-            except OSError:
-                sc_txt = "—"
-            t = config.get_threshold(d)
-            try:
-                verdict = "ALLOW" if float(sc_txt) >= t else "SKIP"
-            except ValueError:
-                verdict = "—"
-            cc = st.columns(4)
-            cc[0].metric("Live score", sc_txt)
-            cc[1].metric("Threshold", f"{t:g}")
-            cc[2].metric("Gate", verdict)
-            try:
-                from toai import health
-                h = health.check(inst)
-                cc[3].metric("Model age",
-                             f"{h['age_days']}d" if h.get("age_days") is not None else "—",
-                             "stale" if h.get("stale") else "ok")
-                for m in h.get("messages", []):
-                    st.caption("⚠ " + m)
-            except Exception:
-                pass
-        _live_status()
         thr = config.get_threshold(d)
 
-        st.divider()
-        st.subheader("Gate threshold")
-        tcol = st.columns([3, 1])
-        newthr = tcol[0].number_input("min ML score to ALLOW", 0, 100, int(thr), key="ctl_thr")
-        if tcol[1].button("Apply to live", width='stretch'):
-            config.set_threshold(float(newthr), d)
-            st.success(f"Live threshold for {inst} set to {newthr:g}.")
+        # Open all / Collapse all — one-click control over the whole section list.
+        _ctl_secs = ["ctl_live", "ctl_gate", "ctl_tf", "ctl_variants",
+                     "ctl_mode", "ctl_actions", "ctl_watch", "ctl_reset"]
+        _oc = st.columns([1.1, 1.3, 6])
+        if _oc[0].button("⛶ Open all", key="ctl_openall", width='stretch'):
+            _set_sections(_ctl_secs, True); st.rerun()
+        if _oc[1].button("⊟ Collapse all", key="ctl_collapseall", width='stretch'):
+            _set_sections(_ctl_secs, False); st.rerun()
 
-        st.divider()
-        st.subheader("Training timeframe")
+        # ── Live status ── (open by default)
+        try:
+            _sc_txt = (d / "score.txt").read_text(encoding="utf-8", errors="ignore").strip()
+        except OSError:
+            _sc_txt = "—"
+        try:
+            _verdict = "ALLOW" if float(_sc_txt) >= thr else "SKIP"
+        except ValueError:
+            _verdict = "—"
+        if _section("ctl_live", "Live status", "🟢",
+                    f"score {_sc_txt} · {_verdict}", default_open=True):
+            auto = st.checkbox("🔄 Auto-refresh every 2s", value=False, key="ctl_auto")
+
+            @st.fragment(run_every=2 if auto else None)
+            def _live_status():
+                try:
+                    sc_txt = (d / "score.txt").read_text(encoding="utf-8", errors="ignore").strip()
+                except OSError:
+                    sc_txt = "—"
+                t = config.get_threshold(d)
+                try:
+                    verdict = "ALLOW" if float(sc_txt) >= t else "SKIP"
+                except ValueError:
+                    verdict = "—"
+                cc = st.columns(4)
+                cc[0].metric("Live score", sc_txt)
+                cc[1].metric("Threshold", f"{t:g}")
+                cc[2].metric("Gate", verdict)
+                try:
+                    from toai import health
+                    h = health.check(inst)
+                    cc[3].metric("Model age",
+                                 f"{h['age_days']}d" if h.get("age_days") is not None else "—",
+                                 "stale" if h.get("stale") else "ok")
+                    for m in h.get("messages", []):
+                        st.caption("⚠ " + m)
+                except Exception:
+                    pass
+            _live_status()
+
+        # ── Gate threshold ──
+        if _section("ctl_gate", "Gate threshold", "🎯", f"min score {int(thr)}"):
+            tcol = st.columns([3, 1])
+            newthr = tcol[0].number_input("min ML score to ALLOW", 0, 100, int(thr), key="ctl_thr")
+            if tcol[1].button("Apply to live", width='stretch'):
+                config.set_threshold(float(newthr), d)
+                st.success(f"Live threshold for {inst} set to {newthr:g}.")
+
+        # ── Training timeframe ──
         tf_opts = ["Auto", "1", "2", "3", "5", "15"]
         cur_tf = config.get_train_tf(d)
         cur_lbl = "Auto" if cur_tf is None else str(cur_tf)
-        gc = st.columns([3, 1])
-        seltf = gc[0].radio("Train new exports as", tf_opts,
-                            index=tf_opts.index(cur_lbl) if cur_lbl in tf_opts else 0,
-                            horizontal=True, key="ctl_traintf")
-        if gc[1].button("Set TF", width='stretch'):
-            config.set_train_tf(None if seltf == "Auto" else int(seltf), d)
-            st.success(f"Training timeframe set to {seltf}.")
+        if _section("ctl_tf", "Training timeframe", "🕒", cur_lbl):
+            gc = st.columns([3, 1])
+            seltf = gc[0].radio("Train new exports as", tf_opts,
+                                index=tf_opts.index(cur_lbl) if cur_lbl in tf_opts else 0,
+                                horizontal=True, key="ctl_traintf")
+            if gc[1].button("Set TF", width='stretch'):
+                config.set_train_tf(None if seltf == "Auto" else int(seltf), d)
+                st.success(f"Training timeframe set to {seltf}.")
 
-        st.divider()
-        st.subheader("Active model / variants")
+        # ── Active model / variants ──
         try:
             reg = variants._load_registry(d)
         except Exception:
             reg = {}
-        if reg:
-            slugs = list(reg)
-            active = next((s for s, v in reg.items() if v.get("active")), None)
+        active = next((s for s, v in reg.items() if v.get("active")), None)
+        _vsum = (f"{reg[active].get('name', active)} · WF {reg[active].get('wf_mean', 0):.2f}"
+                 if active else ("none active" if reg else "no variants"))
+        if _section("ctl_variants", "Active model / variants", "🧬", _vsum):
+            if reg:
+                slugs = list(reg)
 
-            def _vlabel(s):
-                v = reg[s]
-                dot = "● " if s == active else ""
-                return (f"{dot}{v.get('name', s)}  ·  PMV {v.get('pmv', 0):.3f} · "
-                        f"WF {v.get('wf_mean', 0):.3f} · {v.get('timeframe', '?')}m")
-            pick = st.radio("Choose the variant to score live with", slugs,
-                            index=slugs.index(active) if active in slugs else 0,
-                            format_func=_vlabel, key="ctl_variant")
-            if st.button("Activate selected variant", type="primary"):
-                variants.select_variant(pick, d, rescore=True)
-                st.success(f"Activated: {reg[pick].get('name', pick)} — the live "
-                           "model.pkl is now this variant.")
-
-            with st.expander("Manage variants — portfolio toggle / delete"):
-                arm_del = st.checkbox("Arm delete (irreversible)", key="ctl_armdel")
-                for s in slugs:
+                def _vlabel(s):
                     v = reg[s]
-                    mc = st.columns([5, 2, 1])
-                    mc[0].write(v.get("name", s))
-                    in_pf = bool(v.get("portfolio"))
-                    new_pf = mc[1].checkbox("⊕ portfolio", value=in_pf, key=f"ctl_pf_{s}")
-                    if new_pf != in_pf:
-                        variants.set_portfolio(s, d, on=new_pf)
-                        st.rerun()
-                    if mc[2].button("🗑", key=f"ctl_del_{s}", disabled=not arm_del):
-                        variants.delete_variant(s, d)
-                        st.success(f"Deleted {v.get('name', s)}.")
-                        st.rerun()
-        else:
-            st.info("No variants yet. Train an export below to create one.")
+                    dot = "● " if s == active else ""
+                    return (f"{dot}{v.get('name', s)}  ·  PMV {v.get('pmv', 0):.3f} · "
+                            f"WF {v.get('wf_mean', 0):.3f} · {v.get('timeframe', '?')}m")
+                pick = st.radio("Choose the variant to score live with", slugs,
+                                index=slugs.index(active) if active in slugs else 0,
+                                format_func=_vlabel, key="ctl_variant")
+                if st.button("Activate selected variant", type="primary"):
+                    variants.select_variant(pick, d, rescore=True)
+                    st.success(f"Activated: {reg[pick].get('name', pick)} — the live "
+                               "model.pkl is now this variant.")
 
-        st.divider()
-        st.divider()
-        st.subheader("Strategy mode")
+                with st.expander("Manage variants — portfolio toggle / delete"):
+                    arm_del = st.checkbox("Arm delete (irreversible)", key="ctl_armdel")
+                    for s in slugs:
+                        v = reg[s]
+                        mc = st.columns([5, 2, 1])
+                        mc[0].write(v.get("name", s))
+                        in_pf = bool(v.get("portfolio"))
+                        new_pf = mc[1].checkbox("⊕ portfolio", value=in_pf, key=f"ctl_pf_{s}")
+                        if new_pf != in_pf:
+                            variants.set_portfolio(s, d, on=new_pf)
+                            st.rerun()
+                        if mc[2].button("🗑", key=f"ctl_del_{s}", disabled=not arm_del):
+                            variants.delete_variant(s, d)
+                            st.success(f"Deleted {v.get('name', s)}.")
+                            st.rerun()
+            else:
+                st.info("No variants yet. Train an export below to create one.")
+
+        # ── Strategy mode ──
         from toai import score as _score
         _mmf = d / "mode_manual.txt"
         try:
@@ -1258,125 +1308,127 @@ def main():
             _cur_manual = ""
         _mode_opts = ["Auto (from model)", "Standard", "Mean Reversion"]
         _mi = _mode_opts.index(_cur_manual) if _cur_manual in _mode_opts else 0
-        mc = st.columns([3, 1], vertical_alignment="bottom")
-        mode_pick = mc[0].selectbox(
-            "Chart-HUD mode — tag the strategy when you upload it",
-            _mode_opts, index=_mi, key="ctl_mode")
-        if mc[1].button("Apply", width='stretch', key="ctl_mode_apply"):
-            try:
-                if mode_pick.startswith("Auto"):
-                    if _mmf.exists():
-                        _mmf.unlink()
-                else:
-                    _mmf.write_text(mode_pick)
-                import joblib
+        if _section("ctl_mode", "Strategy mode", "🧭", _cur_manual or "Auto (from model)"):
+            mc = st.columns([3, 1], vertical_alignment="bottom")
+            mode_pick = mc[0].selectbox(
+                "Chart-HUD mode — tag the strategy when you upload it",
+                _mode_opts, index=_mi, key="ctl_mode")
+            if mc[1].button("Apply", width='stretch', key="ctl_mode_apply"):
                 try:
-                    _bm = joblib.load(d / "model.pkl")
-                except Exception:
-                    _bm = {"features": []}
-                _score.write_mode(_bm, d / "mode.txt")
-                st.success(f"HUD mode → {_score.model_mode(_bm, d)}")
-            except Exception as e:
-                st.error(f"Failed: {e}")
-        st.caption("Auto = derived from the model (Mean Reversion when the "
-                   "candle-shape features are on). Pin it manually to tag the "
-                   "strategy — the choice persists across retrains and shows on "
-                   "the chart HUD.")
-
-        st.divider()
-        st.subheader("Actions")
-        a = st.columns(2)
-        if a[0].button("⚙ Train newest export", width='stretch'):
-            from toai.build_and_train import build_and_train, find_trades_export
-            p = find_trades_export()
-            if p is None:
-                st.warning(f"No trades export found in {config.DATA_ROOT}.")
-            else:
-                with st.spinner(f"Training {p.name}…"):
+                    if mode_pick.startswith("Auto"):
+                        if _mmf.exists():
+                            _mmf.unlink()
+                    else:
+                        _mmf.write_text(mode_pick)
+                    import joblib
                     try:
-                        build_and_train(trades_file=p)
-                        st.success(f"Trained {p.name}. Reload the chart for scores.")
-                    except Exception as e:
-                        st.error(f"Train failed: {e}")
-        if a[1].button("💾 Backup models", width='stretch'):
-            from toai import backup
-            try:
-                p = backup.backup_instrument(d)
-                st.success(f"Backed up → {p}" if p else "Nothing to back up yet.")
-            except Exception as e:
-                st.error(f"Backup failed: {e}")
+                        _bm = joblib.load(d / "model.pkl")
+                    except Exception:
+                        _bm = {"features": []}
+                    _score.write_mode(_bm, d / "mode.txt")
+                    st.success(f"HUD mode → {_score.model_mode(_bm, d)}")
+                except Exception as e:
+                    st.error(f"Failed: {e}")
+            st.caption("Auto = derived from the model (Mean Reversion when the "
+                       "candle-shape features are on). Pin it manually to tag the "
+                       "strategy — the choice persists across retrains and shows on "
+                       "the chart HUD.")
 
-        b = st.columns(3)
-        if b[0].button("🧹 Clear NT cache", width='stretch'):
-            from toai import ninja_cache
-            try:
-                st.success(f"Cleared NinjaTrader cache: {ninja_cache.clear_cache()}")
-            except Exception as e:
-                st.error(f"Clear failed: {e}")
-        arm = b[1].checkbox("Arm day routines", help="Start/End-day launch or "
-                            "close NinjaTrader. Tick to enable the buttons.")
-        if b[2].button("🌅 Start day", width='stretch', disabled=not arm):
-            from toai import routines
-            with st.spinner("Start-of-day…"):
-                st.success(str(routines.start_of_day()))
-        if arm and st.button("🌙 End day"):
-            from toai import routines
-            with st.spinner("End-of-day…"):
-                st.success(str(routines.end_of_day()))
+        # ── Actions ──
+        if _section("ctl_actions", "Actions", "⚡"):
+            a = st.columns(2)
+            if a[0].button("⚙ Train newest export", width='stretch'):
+                from toai.build_and_train import build_and_train, find_trades_export
+                p = find_trades_export()
+                if p is None:
+                    st.warning(f"No trades export found in {config.DATA_ROOT}.")
+                else:
+                    with st.spinner(f"Training {p.name}…"):
+                        try:
+                            build_and_train(trades_file=p)
+                            st.success(f"Trained {p.name}. Reload the chart for scores.")
+                        except Exception as e:
+                            st.error(f"Train failed: {e}")
+            if a[1].button("💾 Backup models", width='stretch'):
+                from toai import backup
+                try:
+                    p = backup.backup_instrument(d)
+                    st.success(f"Backed up → {p}" if p else "Nothing to back up yet.")
+                except Exception as e:
+                    st.error(f"Backup failed: {e}")
 
-        st.divider()
-        st.subheader("Live watch")
+            b = st.columns(3)
+            if b[0].button("🧹 Clear NT cache", width='stretch'):
+                from toai import ninja_cache
+                try:
+                    st.success(f"Cleared NinjaTrader cache: {ninja_cache.clear_cache()}")
+                except Exception as e:
+                    st.error(f"Clear failed: {e}")
+            arm = b[1].checkbox("Arm day routines", help="Start/End-day launch or "
+                                "close NinjaTrader. Tick to enable the buttons.")
+            if b[2].button("🌅 Start day", width='stretch', disabled=not arm):
+                from toai import routines
+                with st.spinner("Start-of-day…"):
+                    st.success(str(routines.start_of_day()))
+            if arm and st.button("🌙 End day"):
+                from toai import routines
+                with st.spinner("End-of-day…"):
+                    st.success(str(routines.end_of_day()))
+
+        # ── Live watch ──
         proc = st.session_state.get("watch_proc")
         running = proc is not None and proc.poll() is None
-        st.write("Status: " + ("🟢 running (this dashboard)" if running else "⚪ not started here"))
-        w = st.columns(2)
-        if w[0].button("▶ Start watch", width='stretch', disabled=running):
-            st.session_state["watch_proc"] = subprocess.Popen(
-                [sys.executable, "-c", "from toai.score import watch; watch()"],
-                cwd=str(PROJECT_ROOT))
-            st.success("Watch started in the background.")
-        if w[1].button("⏹ Stop watch", width='stretch', disabled=not running):
-            proc.terminate()
-            st.session_state["watch_proc"] = None
-            st.success("Watch stopped.")
-        st.caption("The watch scores live bars → score.txt, ingests fills → journal, "
-                   "and auto-trains new exports. ⚠️ Run only ONE watcher — if "
-                   "TOAI_Control.bat is already running its watch, don't start a second.")
+        if _section("ctl_watch", "Live watch", "👁",
+                    "🟢 running" if running else "⚪ not started"):
+            st.write("Status: " + ("🟢 running (this dashboard)" if running else "⚪ not started here"))
+            w = st.columns(2)
+            if w[0].button("▶ Start watch", width='stretch', disabled=running):
+                st.session_state["watch_proc"] = subprocess.Popen(
+                    [sys.executable, "-c", "from toai.score import watch; watch()"],
+                    cwd=str(PROJECT_ROOT))
+                st.success("Watch started in the background.")
+            if w[1].button("⏹ Stop watch", width='stretch', disabled=not running):
+                proc.terminate()
+                st.session_state["watch_proc"] = None
+                st.success("Watch stopped.")
+            st.caption("The watch scores live bars → score.txt, ingests fills → journal, "
+                       "and auto-trains new exports. ⚠️ Run only ONE watcher — if "
+                       "TOAI_Control.bat is already running its watch, don't start a second.")
 
-        st.divider()
-        st.subheader("Reset a simulation account")
-        _sims = reset.sim_accounts(accounts)
-        if not _sims:
-            st.caption("No simulation accounts found yet (e.g. NinjaTrader "
-                       "Sim101). They appear here once they've traded or are "
-                       "listed in accounts.txt.")
-        else:
-            rc = st.columns([3, 1], vertical_alignment="bottom")
-            sim_pick = rc[0].selectbox("Account to reset", _sims,
-                                       key="ctl_reset_acct")
-            n_rows = reset.count_rows(sim_pick)
-            rc[1].metric("Fills", n_rows)
-            confirm = st.checkbox(
-                f"Yes, delete all {n_rows} fill(s) for {sim_pick} across every "
-                f"instrument", key="ctl_reset_confirm")
-            if st.button("🗑 Reset account", type="primary", width='stretch',
-                         disabled=not confirm or n_rows == 0):
-                try:
-                    res = reset.reset_account(sim_pick)
-                    st.toast(f"Reset {res['account']}: removed "
-                             f"{res['removed']} fill(s) + "
-                             f"{res['journal_removed']} journal row(s).",
-                             icon="✅")
-                    if res["backup"]:
-                        st.toast(f"Backup → {res['backup']}", icon="💾")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Reset failed: {e}")
-            st.caption("Clears this account's calendar / KPIs / evaluation AND "
-                       "its 'Realized fills' trades — removing both the fills "
-                       "(executions) and the matching scored journal rows from "
-                       "every instrument. Originals are copied to _reset_backups "
-                       "first, so it's reversible.")
+        # ── Reset a simulation account ──
+        if _section("ctl_reset", "Reset a simulation account", "🗑"):
+            _sims = reset.sim_accounts(accounts)
+            if not _sims:
+                st.caption("No simulation accounts found yet (e.g. NinjaTrader "
+                           "Sim101). They appear here once they've traded or are "
+                           "listed in accounts.txt.")
+            else:
+                rc = st.columns([3, 1], vertical_alignment="bottom")
+                sim_pick = rc[0].selectbox("Account to reset", _sims,
+                                           key="ctl_reset_acct")
+                n_rows = reset.count_rows(sim_pick)
+                rc[1].metric("Fills", n_rows)
+                confirm = st.checkbox(
+                    f"Yes, delete all {n_rows} fill(s) for {sim_pick} across every "
+                    f"instrument", key="ctl_reset_confirm")
+                if st.button("🗑 Reset account", type="primary", width='stretch',
+                             disabled=not confirm or n_rows == 0):
+                    try:
+                        res = reset.reset_account(sim_pick)
+                        st.toast(f"Reset {res['account']}: removed "
+                                 f"{res['removed']} fill(s) + "
+                                 f"{res['journal_removed']} journal row(s).",
+                                 icon="✅")
+                        if res["backup"]:
+                            st.toast(f"Backup → {res['backup']}", icon="💾")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Reset failed: {e}")
+                st.caption("Clears this account's calendar / KPIs / evaluation AND "
+                           "its 'Realized fills' trades — removing both the fills "
+                           "(executions) and the matching scored journal rows from "
+                           "every instrument. Originals are copied to _reset_backups "
+                           "first, so it's reversible.")
 
     # ---- HOME: one-glance overview (Edgewonk-style) — fits a screen, no scroll ----
     elif view == "🏠 Home":
