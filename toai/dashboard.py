@@ -1833,13 +1833,13 @@ def main():
             st.info("Need realized fills with MAE/MFE to simulate.")
         else:
             pv, tick = contract(inst)
-            st.caption("Re-run your actual trades under a different fixed stop / "
-                       "target, using each trade's recorded MAE/MFE. No bar history "
-                       "needed — answers \"what if my stop was tighter?\" on real fills.")
+            st.caption("What-if: re-run your real trades under a different fixed "
+                       "stop / target (uses each trade's MAE/MFE — no bar history).")
             cc = st.columns(3)
             stop_pts = cc[0].slider("Stop (points)", 0.0, 30.0, 5.0, 0.25)
             target_pts = cc[1].slider("Target (points)", 0.0, 40.0, 10.0, 0.25)
             tie = cc[2].radio("If both hit, assume", ["stop", "target"],
+                              horizontal=True,
                               help="MAE/MFE don't reveal which came first.")
             sim = simulate_sltp(ex, inst, stop_pts, target_pts, tie)
             if sim.empty:
@@ -1855,18 +1855,19 @@ def main():
                 m[3].metric("Stopped / Target / Actual",
                             f"{oc.get('stop',0)} / {oc.get('target',0)} / {oc.get('actual',0)}")
 
-                sim = sim.sort_values("EntryTime")
-                fig = go.Figure()
-                fig.add_trace(go.Scatter(y=sim["Actual"].apply(u).cumsum(),
-                                         name="Actual", line=dict(color=MUTED)))
-                fig.add_trace(go.Scatter(y=sim["Sim"].apply(u).cumsum(),
-                                         name="Simulated", line=dict(color=GREEN, width=2)))
-                fig.update_layout(title="Equity — simulated stop/target vs actual",
-                                  height=340, margin=dict(t=40),
-                                  yaxis_title=usym.strip() or "$")
-                st.plotly_chart(fig, width='stretch')
-                st.caption(f"1 point = ${pv:g} · tie broken as '{tie}'. Trades that hit "
-                           "neither level keep their real outcome.")
+                if _section("sim_equity", "Equity curve", "📈"):
+                    sim = sim.sort_values("EntryTime")
+                    fig = go.Figure()
+                    fig.add_trace(go.Scatter(y=sim["Actual"].apply(u).cumsum(),
+                                             name="Actual", line=dict(color=MUTED)))
+                    fig.add_trace(go.Scatter(y=sim["Sim"].apply(u).cumsum(),
+                                             name="Simulated", line=dict(color=GREEN, width=2)))
+                    fig.update_layout(title="Equity — simulated stop/target vs actual",
+                                      height=300, margin=dict(t=40),
+                                      yaxis_title=usym.strip() or "$")
+                    st.plotly_chart(fig, width='stretch')
+                    st.caption(f"1 point = ${pv:g} · tie broken as '{tie}'. Trades that hit "
+                               "neither level keep their real outcome.")
 
     # ---- TAB 6: trade explorer (per-trade candles + markers) ----
     elif view == "🕯 Trade explorer":
