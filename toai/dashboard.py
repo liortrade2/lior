@@ -1154,9 +1154,9 @@ def main():
         return to_units(dollars, inst, unit)
     usym = unit_symbol(unit)
 
-    NAV = ["🏠 Home", "⚙️ Control", "🎯 ML edge", "🔬 Breakdowns", "📅 Calendar",
-           "🥅 Goals", "🧪 Simulator", "🕯 Trade explorer", "🤖 AI Coach",
-           "🎚 Filters"]
+    NAV = ["🏠 Home", "🎚 Filters", "⚙️ Control", "🎯 ML edge", "🔬 Breakdowns",
+           "📅 Calendar", "🥅 Goals", "🧪 Simulator", "🕯 Trade explorer",
+           "🤖 AI Coach"]
     # Collapse button: shrinks the rail to icon-only.
     ss.setdefault("nav_collapsed", True)  # start collapsed (icons only)
     if st.button("»" if ss["nav_collapsed"] else "«  Collapse", key="nav_toggle",
