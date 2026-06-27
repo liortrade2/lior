@@ -9,3 +9,5 @@ streamlit>=1.43,<1.59 # dashboard. floor 1.43 = width='stretch' API; ceiling
                       # 1.58.0 validated; session_state fallback also guards it.
 plotly>=5.18    # interactive charts + candlestick trade-on-chart
 anthropic>=0.40 # AI Coach (toai/ai_coach.py) — Claude API; pip installs latest
+lightgbm>=4.0
+shap>=0.44

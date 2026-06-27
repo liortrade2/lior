@@ -8,10 +8,25 @@ import joblib
 import numpy as np
 import pandas as pd
 from sklearn.calibration import CalibratedClassifierCV
-from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.metrics import brier_score_loss, roc_auc_score
 from sklearn.model_selection import GridSearchCV, train_test_split
 from sklearn.preprocessing import StandardScaler
+
+# LightGBM is the primary estimator (best-in-class on tabular); fall back to
+# sklearn's GradientBoosting if it isn't installed, so training never breaks.
+try:
+    from lightgbm import LGBMClassifier
+
+    def _make_estimator(**kw):
+        return LGBMClassifier(random_state=config.RANDOM_STATE, verbosity=-1,
+                              min_child_samples=5, **kw)
+    _ESTIMATOR = "lightgbm"
+except ImportError:                       # pragma: no cover
+    from sklearn.ensemble import GradientBoostingClassifier
+
+    def _make_estimator(**kw):
+        return GradientBoostingClassifier(random_state=config.RANDOM_STATE, **kw)
+    _ESTIMATOR = "gradient_boosting"
 
 
 def _ece(y_true, y_prob, bins: int = 10) -> float:
@@ -46,6 +61,7 @@ def _trust(wf_mean: float | None, ece: float | None) -> str:
 
 from . import config
 from .features import MODEL_FEATURES, derive_features
+from .label import meta_label
 
 PARAM_GRID = {
     "n_estimators": [100, 200],
@@ -91,7 +107,9 @@ def train(df: pd.DataFrame | None = None, features=None, verbose: bool = True):
     df = df.dropna(subset=features + [config.TARGET_COLUMN])
 
     X = df[features]
-    y = (df[config.TARGET_COLUMN] > 0).astype(int)
+    # Triple-barrier meta-label (take/win vs skip/loss) when the trade carries
+    # MAE/MFE + Stop/Take; otherwise PnL>0 (label.meta_label handles both).
+    y = meta_label(df)
 
     if y.nunique() < 2:
         raise ValueError("Training data needs both winning and losing trades.")
@@ -107,7 +125,7 @@ def train(df: pd.DataFrame | None = None, features=None, verbose: bool = True):
     )
 
     search = GridSearchCV(
-        GradientBoostingClassifier(random_state=config.RANDOM_STATE),
+        _make_estimator(),
         PARAM_GRID,
         scoring="roc_auc",
         cv=3,
@@ -122,10 +140,24 @@ def train(df: pd.DataFrame | None = None, features=None, verbose: bool = True):
     # problem). Platt/sigmoid is the robust choice on small samples; isotonic
     # overfits. AUC is unchanged by this monotonic mapping — only the % moves.
     model = CalibratedClassifierCV(
-        GradientBoostingClassifier(random_state=config.RANDOM_STATE,
-                                   **search.best_params_),
-        method="sigmoid", cv=3)
+        _make_estimator(**search.best_params_), method="sigmoid", cv=3)
     model.fit(X_train, y_train)
+
+    # SHAP feature attributions (on the uncalibrated tree model) — the "why" the
+    # cockpit shows. Best-effort; never block training if shap is unavailable.
+    shap_top = None
+    try:
+        import shap
+        sv = shap.TreeExplainer(raw).shap_values(X_train)
+        if isinstance(sv, list):                 # some shap versions: [class0, class1]
+            sv = sv[-1]
+        sv = np.asarray(sv)
+        imp = np.abs(sv).mean(axis=0)
+        signed = sv.mean(axis=0)
+        order = np.argsort(imp)[::-1]
+        shap_top = [(features[i], float(signed[i])) for i in order[:8]]
+    except Exception:
+        shap_top = None
 
     y_prob = model.predict_proba(X_test)[:, 1]
     pmv = roc_auc_score(y_test, y_prob)
@@ -158,7 +190,9 @@ def train(df: pd.DataFrame | None = None, features=None, verbose: bool = True):
                  "wf_threshold_report": wf_report,
                  "entry_window": entry_window,
                  "calibrated": True, "brier_raw": brier_raw, "brier_cal": brier_cal,
-                 "wf_mean": wf_mean, "wf_ece": wf_ece, "trust": trust},
+                 "wf_mean": wf_mean, "wf_ece": wf_ece, "trust": trust,
+                 "estimator": _ESTIMATOR, "shap_top": shap_top,
+                 "label": "triple_barrier"},
                 config.MODEL_FILE)
     # NinjaScript reads the window too (banner + gate outside it).
     # entry_window_manual.txt, when present, overrides the auto window.
@@ -239,20 +273,21 @@ def walk_forward(df, features=None, n_folds=4):
     if "DateTime" in df.columns:
         df = df.sort_values("DateTime")
     X = df[features].to_numpy()
-    y = (df[config.TARGET_COLUMN] > 0).astype(int).to_numpy()
+    y = meta_label(df).to_numpy()
     n = len(df)
     fold = n // (n_folds + 1)
+    # Purge/embargo: drop a small gap of samples between the train end and the
+    # test start so adjacent-in-time trades can't leak (CPCV-lite).
+    embargo = max(1, int(round(n * 0.01)))
     aucs, all_y, all_prob = [], [], []
     for i in range(1, n_folds + 1):
         end = fold * (i + 1) if i < n_folds else n
-        X_tr, y_tr = X[:fold * i], y[:fold * i]
+        X_tr, y_tr = X[:max(0, fold * i - embargo)], y[:max(0, fold * i - embargo)]
         X_te, y_te = X[fold * i:end], y[fold * i:end]
         if len(set(y_tr)) < 2 or len(set(y_te)) < 2:
             continue
         scaler = StandardScaler().fit(X_tr)
-        model = GradientBoostingClassifier(
-            random_state=config.RANDOM_STATE,
-            n_estimators=200, max_depth=3, learning_rate=0.05)
+        model = _make_estimator(n_estimators=200, max_depth=3, learning_rate=0.05)
         model.fit(scaler.transform(X_tr), y_tr)
         prob = model.predict_proba(scaler.transform(X_te))[:, 1]
         aucs.append(float(roc_auc_score(y_te, prob)))

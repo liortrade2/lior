@@ -93,6 +93,16 @@ def match_trades(trades_path, bar_data_path=None, tolerance_minutes: int = 30):
     out = matched[["EntryTime", "ExitTime", "Direction"]
                   + config.FEATURES + ohlc + ["PnL"]].copy()
     out = out.rename(columns={"EntryTime": "DateTime"})
+
+    # Carry the trade's risk barriers (for triple-barrier meta-labeling): MAE/MFE
+    # excursions ($) + the recorded Stop/Take (price) + entry price + qty. Mapped
+    # to canonical names; absent in older exports → labeling falls back to PnL.
+    _barrier_src = {"MAE": "MAE", "MFE": "MFE", "Stop Loss": "StopLoss",
+                    "Take Profit": "TakeProfit", "Entry price": "EntryPrice",
+                    "Qty": "Qty"}
+    for src, dst in _barrier_src.items():
+        if src in matched.columns:
+            out[dst] = pd.to_numeric(matched[src], errors="coerce").to_numpy()
     return out, len(trades), unmatched
 
 
